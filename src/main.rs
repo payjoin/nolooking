@@ -53,12 +53,29 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
         ))),
 
         (&Method::POST, "/pj") => {
+            dbg!(req.uri().query());
+            let query = req
+                .uri()
+                .query()
+                .into_iter()
+                .flat_map(|query| query.split('&'))
+                .map(|kv| {
+                    let eq_pos = kv.find('=').unwrap();
+                    (&kv[..eq_pos], &kv[(eq_pos + 1)..])
+                })
+                .collect::<std::collections::HashMap<_, _>>();
+
+            if query.get("disableoutputsubstitution") == Some(&"1") {
+                panic!("Output substitution must be enabled");
+            }
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
             let mut reader = &*bytes;
             let our_script = address.script_pubkey();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
+            eprintln!("Received transaction: {:#?}", psbt);
             psbt.global.unsigned_tx.output.retain(|output| output.script_pubkey != our_script);
+            eprintln!("After removing our output: {:#?}", psbt);
             // TODO: verify segwit!
             for input in &mut psbt.global.unsigned_tx.input {
                 // clear signature
@@ -101,9 +118,11 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
                         Update::PsbtFund(ready) => {
                             let mut bytes = &*ready.psbt;
                             let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
+                            eprintln!("PSBT received from LND: {:#?}", tx);
                             assert_eq!(tx.global.unsigned_tx.output.len(), 1);
                             // TODO: insert at random position
                             psbt.global.unsigned_tx.output.extend(tx.global.unsigned_tx.output);
+                            eprintln!("PSBT to be given to LND: {:#?}", psbt);
                             let mut psbt_bytes = Vec::new();
                             psbt.consensus_encode(&mut psbt_bytes).unwrap();
 
@@ -119,12 +138,13 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
                             // Reset transaction state to be non-finalized
                             psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx).expect("resetting tx failed");
                             let mut psbt_bytes = Vec::new();
+                            eprintln!("PSBT that will be returned: {:#?}", psbt);
                             psbt.consensus_encode(&mut psbt_bytes).unwrap();
                             let psbt_bytes = base64::encode(psbt_bytes);
                             return Ok(Response::new(Body::from(psbt_bytes)));
                         },
                         // panic?
-                        _ => break,
+                        x => panic!("Unexpected update {:?}", x),
                     }
                 }
             }
