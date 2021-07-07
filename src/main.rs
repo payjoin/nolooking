@@ -74,13 +74,12 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
             let our_script = address.script_pubkey();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
-            psbt.global.unsigned_tx.output.retain(|output| output.script_pubkey != our_script);
-            eprintln!("After removing our output: {:#?}", psbt);
-            // TODO: verify segwit!
             for input in &mut psbt.global.unsigned_tx.input {
                 // clear signature
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
+            let our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
+            assert_eq!(our_output.value, amount);
 
             let chid = rand::random::<[u8; 32]>();
             let psbt_shim = tonic_lnd::rpc::PsbtShim {
@@ -120,8 +119,10 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
                             let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
                             eprintln!("PSBT received from LND: {:#?}", tx);
                             assert_eq!(tx.global.unsigned_tx.output.len(), 1);
+                            let mut outputs = tx.global.unsigned_tx.output.into_iter();
+                            *our_output = outputs.next().expect("LND didn't return any output");
                             // TODO: insert at random position
-                            psbt.global.unsigned_tx.output.extend(tx.global.unsigned_tx.output);
+                            psbt.global.unsigned_tx.output.extend(outputs);
                             eprintln!("PSBT to be given to LND: {:#?}", psbt);
                             let mut psbt_bytes = Vec::new();
                             psbt.consensus_encode(&mut psbt_bytes).unwrap();
