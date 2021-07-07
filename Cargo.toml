@@ -9,7 +9,7 @@ edition = "2018"
 [dependencies]
 bitcoin = "0.26.0"
 hyper = "0.14.9"
-tonic_lnd = { version = "0.1", path = "../tonic_lnd" }
+tonic_lnd = "0.1"
 tokio = { version = "1.7.1", features = ["rt-multi-thread"] }
 rand = "0.8.4"
 hex = "0.4.3"

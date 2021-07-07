@@ -807,7 +807,9 @@ dependencies = [
 
 [[package]]
 name = "tonic_lnd"
-version = "0.1.0"
+version = "0.1.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fef53e949b8ea043a8cbf247b6c5dd2f255520e1fc703eca708249a5789b141e"
 dependencies = [
  "hex",
  "prost",
