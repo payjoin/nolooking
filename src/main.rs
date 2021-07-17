@@ -4,20 +4,34 @@ use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use std::convert::TryInto;
 
+#[derive(Clone)]
+struct ScheduledChannel {
+    fallback_address: Address,
+    node_pubkey: [u8; 33],
+    channel_amount: bitcoin::Amount,
+    wallet_amount: bitcoin::Amount,
+    client: tonic_lnd::Client,
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() != 7 {
+    if args.len() < 7 || args.len() > 8 {
         println!("{:?}", args);
-        println!("args: <bind_port> <address> <cert> <macaroon> <dest_node_uri> <amount>");
+        println!("args: <bind_port> <address> <cert> <macaroon> <dest_node_uri> <channel_amount> [<wallet_amount>]");
         return Ok(());
     }
     let mut client = tonic_lnd::connect(args[2].clone(), &args[3], &args[4])
         .await
         .expect("failed to connect");
     let address = client.new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), }).await?.into_inner().address;
-    let amount = args[6].parse().expect("invalid amount");
-    println!("bitcoin:{}?amount={}.{:08}&pj=https://example.com/pj", address, amount / 100000000, amount % 100000000);
+    let channel_amount = bitcoin::Amount::from_str_in(&args[6], bitcoin::Denomination::Satoshi).expect("invalid channel amount");
+    let wallet_amount = if args.len() > 7 {
+        bitcoin::Amount::from_str_in(&args[7], bitcoin::Denomination::Satoshi).expect("invalid wallet amount")
+    } else {
+        bitcoin::Amount::ZERO
+    };
+    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (channel_amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
 
     let address = address.parse::<Address>().expect("lnd returned invalid address");
 
@@ -45,13 +59,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
 
+    let scheduled_channel = ScheduledChannel {
+        fallback_address: address,
+        node_pubkey,
+        channel_amount,
+        wallet_amount,
+        client,
+    };
+
     let service = make_service_fn(move |_| {
-        let address = address.clone();
-        let client = client.clone();
+        let scheduled_channel = scheduled_channel.clone();
 
         async move {
 
-            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(address.clone(), client.clone(), request, node_pubkey, amount)))
+            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(scheduled_channel.clone(), request)))
         }
     });
 
@@ -64,7 +85,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Request<Body>, node_pubkey: [u8; 33], amount: u64) -> Result<Response<Body>, hyper::Error> {
+async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
 
     match (req.method(), req.uri().path()) {
@@ -74,6 +95,8 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
 
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
+
+            let mut lnd = scheduled_channel.client;
             let query = req
                 .uri()
                 .query()
@@ -91,20 +114,30 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
             let mut reader = &*bytes;
-            let our_script = address.script_pubkey();
+            let our_script = scheduled_channel.fallback_address.script_pubkey();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
             for input in &mut psbt.global.unsigned_tx.input {
                 // clear signature
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
-            let our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
-            assert_eq!(our_output.value, amount);
+            let mut our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
+            assert_eq!(our_output.value, (scheduled_channel.channel_amount + scheduled_channel.wallet_amount).as_sat());
+
+            let base_psbt = if scheduled_channel.wallet_amount != bitcoin::Amount::ZERO {
+                our_output.value = scheduled_channel.wallet_amount.as_sat();
+                let mut psbt_bytes = Vec::new();
+                psbt.consensus_encode(&mut psbt_bytes).expect("writing to Vecc never fails");
+                our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
+                psbt_bytes
+            } else {
+                Vec::new()
+            };
 
             let chid = rand::random::<[u8; 32]>();
             let psbt_shim = tonic_lnd::rpc::PsbtShim {
                 pending_chan_id: Vec::from(&chid as &[_]),
-                base_psbt: Vec::new(),
+                base_psbt,
                 no_publish: true,
             };
 
@@ -114,8 +147,8 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
             };
 
             let open_channel = tonic_lnd::rpc::OpenChannelRequest {
-                node_pubkey: Vec::from(&node_pubkey as &[_]),
-                local_funding_amount: amount.try_into().expect("amount too large"),
+                node_pubkey: Vec::from(&scheduled_channel.node_pubkey as &[_]),
+                local_funding_amount: scheduled_channel.channel_amount.as_sat().try_into().expect("amount too large"),
                 push_sat: 0,
                 private: false,
                 min_htlc_msat: 0,
@@ -123,7 +156,7 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
                 spend_unconfirmed: false,
                 close_address: String::new(),
                 funding_shim: Some(funding_shim),
-                remote_max_value_in_flight_msat: amount,
+                remote_max_value_in_flight_msat: scheduled_channel.channel_amount.as_sat() * 1000,
                 remote_max_htlcs: 10,
                 max_local_csv: 288,
                 ..Default::default()
@@ -138,11 +171,14 @@ async fn handle_web_req(address: Address, mut lnd: tonic_lnd::Client, req: Reque
                             let mut bytes = &*ready.psbt;
                             let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
                             eprintln!("PSBT received from LND: {:#?}", tx);
-                            assert_eq!(tx.global.unsigned_tx.output.len(), 1);
-                            let mut outputs = tx.global.unsigned_tx.output.into_iter();
-                            *our_output = outputs.next().expect("LND didn't return any output");
-                            // TODO: insert at random position
-                            psbt.global.unsigned_tx.output.extend(outputs);
+                            if scheduled_channel.wallet_amount == bitcoin::Amount::ZERO {
+                                let mut outputs = tx.global.unsigned_tx.output.into_iter();
+                                let channel_output = outputs.next().expect("LND didn't return any output");
+                                assert_eq!(channel_output.value, scheduled_channel.channel_amount.as_sat());
+                                *our_output = channel_output;
+                            } else {
+                                psbt = tx;
+                            }
                             eprintln!("PSBT to be given to LND: {:#?}", psbt);
                             let mut psbt_bytes = Vec::new();
                             psbt.consensus_encode(&mut psbt_bytes).unwrap();

@@ -32,14 +32,18 @@ And yes, int he future you could give the URI/QR code to someone else, so you re
 0. You need a [recent version of Rust](https://rustup.rs) to compile this.
 1. You need to clone the **forked** LND: `git clone -b psbt-no-final-tx https://github.com/guggero/lnd/`
 2. `LND_REPO_DIR=path/to/forked/lnd/ cargo build`
-3. Build forked LND
+3. Build forked LND - connsider merging in fix from [#5539](https://github.com/lightningnetwork/lnd/pull/5539)
 4. Deploy forked LND (replacing binary in deployment followed by restart works)
 5. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
 6. Connect to the peer using `lncli connect ...`
-7. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon DEST_NODE_ID AMOUN_IN_SATS`
+7. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon DEST_NODE_ID AMOUNS_IN_SATS [CHAIN_WALLET_AMOUNT_SATS]`
 8. Copy BIP21 from command line output and paste it into one of the supported wallets
 9. Confirm the transaction and pray it works
+
+Note: if `CHAIN_WALLET_AMOUNT_SATS` is present another output will be added to send the amount to the internal wallet.
+This may be required in case the wallet is empty as in such case LND can not reserve sats for anchor commitments.
+However, to truly work, you need [another LND fix](https://github.com/lightningnetwork/lnd/pull/5539) (merge with the other branch).
 
 ## License
 
