@@ -23,7 +23,27 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
     let mut node_pubkey = [0; 33];
-    hex::decode_to_slice(&args[5], &mut node_pubkey).expect("invalid node pubkey");
+    let mut node_addr_parts = args[5].split('@');
+    let node_pubkey_str = node_addr_parts.next().expect("split returned empty iterator");
+    let node_addr = node_addr_parts.next().expect("missing host:port");
+    assert!(node_addr_parts.next().is_none());
+    hex::decode_to_slice(node_pubkey_str, &mut node_pubkey).expect("invalid node pubkey");
+
+    let peer_addr = tonic_lnd::rpc::LightningAddress {
+        pubkey: node_pubkey_str.to_owned(),
+        host: node_addr.to_owned(),
+    };
+
+    let connect_req = tonic_lnd::rpc::ConnectPeerRequest {
+        addr: Some(peer_addr),
+        perm: true,
+        timeout: 60,
+    };
+    client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
+        if !error.message().starts_with("already connected to peer") {
+            panic!("failed to connect to peer {}: {:?}", args[5], error);
+        }
+    });
 
     let service = make_service_fn(move |_| {
         let address = address.clone();

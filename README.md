@@ -23,7 +23,6 @@ And yes, int he future you could give the URI/QR code to someone else, so you re
 * CLI-only
 * No way to inteligently manipulate the amount
 * No discount possible
-* You must connect to the peer manually
 * Invalid request can kill whole server
 * `.unwraps()`s EVERYWHERE!
 * I swear I knew about a few more but can't remember right now :D
