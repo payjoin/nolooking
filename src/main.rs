@@ -13,6 +13,26 @@ struct ScheduledChannel {
     client: tonic_lnd::Client,
 }
 
+async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &[u8; 33], node_addr: &str) {
+    let pubkey = hex::encode(node_pubkey);
+    let peer_addr = tonic_lnd::rpc::LightningAddress {
+        pubkey: pubkey.clone(),
+        host: node_addr.to_owned(),
+    };
+
+    let connect_req = tonic_lnd::rpc::ConnectPeerRequest {
+        addr: Some(peer_addr),
+        perm: true,
+        timeout: 60,
+    };
+
+    client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
+        if !error.message().starts_with("already connected to peer") {
+            panic!("failed to connect to peer {}@{}: {:?}", pubkey, node_addr, error);
+        }
+    });
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -43,21 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(node_addr_parts.next().is_none());
     hex::decode_to_slice(node_pubkey_str, &mut node_pubkey).expect("invalid node pubkey");
 
-    let peer_addr = tonic_lnd::rpc::LightningAddress {
-        pubkey: node_pubkey_str.to_owned(),
-        host: node_addr.to_owned(),
-    };
-
-    let connect_req = tonic_lnd::rpc::ConnectPeerRequest {
-        addr: Some(peer_addr),
-        perm: true,
-        timeout: 60,
-    };
-    client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
-        if !error.message().starts_with("already connected to peer") {
-            panic!("failed to connect to peer {}: {:?}", args[5], error);
-        }
-    });
+    ensure_connected(&mut client, &node_pubkey, node_addr).await;
 
     let scheduled_channel = ScheduledChannel {
         fallback_address: address,
