@@ -8,7 +8,7 @@ use std::convert::TryInto;
 struct ScheduledChannel {
     node_pubkey: [u8; 33],
     node_network_addr: String,
-    channel_amount: bitcoin::Amount,
+    amount: bitcoin::Amount,
 }
 
 impl ScheduledChannel {
@@ -20,12 +20,12 @@ impl ScheduledChannel {
         assert!(node_addr_parts.next().is_none());
 
         hex::decode_to_slice(node_pubkey_str, &mut node_pubkey).expect("invalid node pubkey");
-        let channel_amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi).expect("invalid channel amount");
+        let amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi).expect("invalid channel amount");
 
         ScheduledChannel {
             node_pubkey,
             node_network_addr: node_addr.to_owned(),
-            channel_amount,
+            amount,
         }
     }
 }
@@ -77,7 +77,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     } else {
         bitcoin::Amount::ZERO
     };
-    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (scheduled_channel.channel_amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
+    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (scheduled_channel.amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
 
     let address = address.parse::<Address>().expect("lnd returned invalid address");
 
@@ -147,7 +147,7 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
             let mut our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
-            assert_eq!(our_output.value, (scheduled_payjoin.channel.channel_amount + scheduled_payjoin.wallet_amount).as_sat());
+            assert_eq!(our_output.value, (scheduled_payjoin.channel.amount + scheduled_payjoin.wallet_amount).as_sat());
 
             let base_psbt = if scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO {
                 our_output.value = scheduled_payjoin.wallet_amount.as_sat();
@@ -175,7 +175,7 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
 
             let open_channel = tonic_lnd::rpc::OpenChannelRequest {
                 node_pubkey: Vec::from(&scheduled_payjoin.channel.node_pubkey as &[_]),
-                local_funding_amount: scheduled_payjoin.channel.channel_amount.as_sat().try_into().expect("amount too large"),
+                local_funding_amount: scheduled_payjoin.channel.amount.as_sat().try_into().expect("amount too large"),
                 push_sat: 0,
                 private: false,
                 min_htlc_msat: 0,
@@ -183,7 +183,7 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
                 spend_unconfirmed: false,
                 close_address: String::new(),
                 funding_shim: Some(funding_shim),
-                remote_max_value_in_flight_msat: scheduled_payjoin.channel.channel_amount.as_sat() * 1000,
+                remote_max_value_in_flight_msat: scheduled_payjoin.channel.amount.as_sat() * 1000,
                 remote_max_htlcs: 10,
                 max_local_csv: 288,
                 ..Default::default()
@@ -201,7 +201,7 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
                             if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
                                 let mut outputs = tx.global.unsigned_tx.output.into_iter();
                                 let channel_output = outputs.next().expect("LND didn't return any output");
-                                assert_eq!(channel_output.value, scheduled_payjoin.channel.channel_amount.as_sat());
+                                assert_eq!(channel_output.value, scheduled_payjoin.channel.amount.as_sat());
                                 *our_output = channel_output;
                             } else {
                                 psbt = tx;
