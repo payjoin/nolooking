@@ -35,7 +35,8 @@ struct ScheduledPayJoin {
     fallback_address: Address,
     wallet_amount: bitcoin::Amount,
     client: tonic_lnd::Client,
-    channel: ScheduledChannel,
+    channels: Vec<ScheduledChannel>,
+    fee_rate: u64,
 }
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &[u8; 33], node_addr: &str) {
@@ -58,38 +59,60 @@ async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &[u8; 33]
     });
 }
 
+fn calculate_fees(channel_count: u64, fee_rate: u64, has_additional_output: bool) -> bitcoin::Amount {
+    let additional_vsize = if has_additional_output {
+        channel_count * (8 + 1 + 1 + 32)
+    } else {
+        (channel_count - 1) * (8 + 1 + 1 + 32) + 12
+    };
+
+    bitcoin::Amount::from_sat(fee_rate * additional_vsize)
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 7 || args.len() > 8 {
-        println!("{:?}", args);
-        println!("args: <bind_port> <address> <cert> <macaroon> <dest_node_uri> <channel_amount> [<wallet_amount>]");
+    if args.len() < 7 {
+        println!("Usage: {} <bind_port> <address> <cert> <macaroon> <fee_rate_sat_per_vb> <dest_node_uri> <channel_amount> [<dest_node_uri> <channel_amount> ...] [<wallet_amount>]", args[0]);
         return Ok(());
     }
-    let scheduled_channel = ScheduledChannel::from_args(&args[5], &args[6]);
+    let mut pairs = args[6..].chunks_exact(2);
+    let scheduled_channels = pairs.by_ref().map(|args| ScheduledChannel::from_args(&args[0], &args[1])).collect::<Vec<_>>();
 
     let mut client = tonic_lnd::connect(args[2].clone(), &args[3], &args[4])
         .await
         .expect("failed to connect");
     let address = client.new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), }).await?.into_inner().address;
-    let wallet_amount = if args.len() > 7 {
-        bitcoin::Amount::from_str_in(&args[7], bitcoin::Denomination::Satoshi).expect("invalid wallet amount")
-    } else {
-        bitcoin::Amount::ZERO
-    };
-    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (scheduled_channel.amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
+    let wallet_amount = pairs
+        .remainder()
+        .iter()
+        .next()
+        .map(|amount| bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi).expect("invalid wallet amount"))
+        .unwrap_or(bitcoin::Amount::ZERO);
+
+    let fee_rate = args[5].parse::<u64>().expect("invalid fee rate");
+
+    let fees = calculate_fees(scheduled_channels.len() as u64, fee_rate, wallet_amount != bitcoin::Amount::ZERO);
+
+    let total_channel_amount: bitcoin::Amount = scheduled_channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
+
+    println!("Expected fee: {} sat", fees.as_sat());
+    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (total_channel_amount + wallet_amount + fees).to_string_in(bitcoin::Denomination::Bitcoin));
 
     let address = address.parse::<Address>().expect("lnd returned invalid address");
 
     let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
 
-    ensure_connected(&mut client, &scheduled_channel.node_pubkey, &scheduled_channel.node_network_addr).await;
+    for channel in &scheduled_channels {
+        ensure_connected(&mut client, &channel.node_pubkey, &channel.node_network_addr).await;
+    }
 
     let scheduled_payjoin = ScheduledPayJoin {
         fallback_address: address,
         wallet_amount,
-        channel: scheduled_channel,
+        channels: scheduled_channels,
         client,
+        fee_rate,
     };
 
     let service = make_service_fn(move |_| {
@@ -147,93 +170,107 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
             let mut our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
-            assert_eq!(our_output.value, (scheduled_payjoin.channel.amount + scheduled_payjoin.wallet_amount).as_sat());
+            let total_channel_amount: bitcoin::Amount = scheduled_payjoin.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
+            let fees = calculate_fees(scheduled_payjoin.channels.len() as u64, scheduled_payjoin.fee_rate, scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO);
 
-            let base_psbt = if scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO {
-                our_output.value = scheduled_payjoin.wallet_amount.as_sat();
-                let mut psbt_bytes = Vec::new();
-                psbt.consensus_encode(&mut psbt_bytes).expect("writing to Vecc never fails");
-                our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
-                psbt_bytes
-            } else {
-                Vec::new()
-            };
+            assert_eq!(our_output.value, (total_channel_amount + scheduled_payjoin.wallet_amount + fees).as_sat());
 
-            let chid = rand::random::<[u8; 32]>();
-            let psbt_shim = tonic_lnd::rpc::PsbtShim {
-                pending_chan_id: Vec::from(&chid as &[_]),
-                base_psbt,
-                no_publish: true,
-            };
+            let chids = (0..scheduled_payjoin.channels.len()).into_iter().map(|_| rand::random::<[u8; 32]>()).collect::<Vec<_>>();
 
-            let funding_shim = tonic_lnd::rpc::funding_shim::Shim::PsbtShim(psbt_shim);
-            let funding_shim = tonic_lnd::rpc::FundingShim {
-                shim: Some(funding_shim),
-            };
+            // no collect() because of async
+            let mut txouts = Vec::with_capacity(scheduled_payjoin.channels.len());
 
-            ensure_connected(&mut lnd, &scheduled_payjoin.channel.node_pubkey, &scheduled_payjoin.channel.node_network_addr).await;
+            for (channel, chid) in scheduled_payjoin.channels.iter().zip(&chids) {
+                let psbt_shim = tonic_lnd::rpc::PsbtShim {
+                    pending_chan_id: Vec::from(chid as &[_]),
+                    base_psbt: Vec::new(),
+                    no_publish: true,
+                };
 
-            let open_channel = tonic_lnd::rpc::OpenChannelRequest {
-                node_pubkey: Vec::from(&scheduled_payjoin.channel.node_pubkey as &[_]),
-                local_funding_amount: scheduled_payjoin.channel.amount.as_sat().try_into().expect("amount too large"),
-                push_sat: 0,
-                private: false,
-                min_htlc_msat: 0,
-                remote_csv_delay: 0,
-                spend_unconfirmed: false,
-                close_address: String::new(),
-                funding_shim: Some(funding_shim),
-                remote_max_value_in_flight_msat: scheduled_payjoin.channel.amount.as_sat() * 1000,
-                remote_max_htlcs: 10,
-                max_local_csv: 288,
-                ..Default::default()
-            };
-            let mut update_stream = lnd.open_channel(open_channel).await.expect("Failed to call open channel").into_inner();
-            while let Some(message) = update_stream.message().await.expect("failed to receive update") {
-                assert_eq!(message.pending_chan_id, chid);
-                if let Some(update) = message.update {
-                    use tonic_lnd::rpc::open_status_update::Update;
-                    match update {
-                        Update::PsbtFund(ready) => {
-                            let mut bytes = &*ready.psbt;
-                            let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
-                            eprintln!("PSBT received from LND: {:#?}", tx);
-                            if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
-                                let mut outputs = tx.global.unsigned_tx.output.into_iter();
-                                let channel_output = outputs.next().expect("LND didn't return any output");
-                                assert_eq!(channel_output.value, scheduled_payjoin.channel.amount.as_sat());
-                                *our_output = channel_output;
-                            } else {
-                                psbt = tx;
-                            }
-                            eprintln!("PSBT to be given to LND: {:#?}", psbt);
-                            let mut psbt_bytes = Vec::new();
-                            psbt.consensus_encode(&mut psbt_bytes).unwrap();
+                let funding_shim = tonic_lnd::rpc::funding_shim::Shim::PsbtShim(psbt_shim);
+                let funding_shim = tonic_lnd::rpc::FundingShim {
+                    shim: Some(funding_shim),
+                };
 
-                            let psbt_verify = tonic_lnd::rpc::FundingPsbtVerify {
-                                pending_chan_id: Vec::from(&chid as &[_]),
-                                funded_psbt: psbt_bytes.clone(),
-                                skip_finalize: true,
-                            };
-                            let transition_msg = tonic_lnd::rpc::FundingTransitionMsg {
-                                trigger: Some(tonic_lnd::rpc::funding_transition_msg::Trigger::PsbtVerify(psbt_verify)),
-                            };
-                            lnd.funding_state_step(transition_msg).await.expect("failed to execute funding state step");
-                            // Reset transaction state to be non-finalized
-                            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx).expect("resetting tx failed");
-                            let mut psbt_bytes = Vec::new();
-                            eprintln!("PSBT that will be returned: {:#?}", psbt);
-                            psbt.consensus_encode(&mut psbt_bytes).unwrap();
-                            let psbt_bytes = base64::encode(psbt_bytes);
-                            return Ok(Response::new(Body::from(psbt_bytes)));
-                        },
-                        // panic?
-                        x => panic!("Unexpected update {:?}", x),
+                ensure_connected(&mut lnd, &channel.node_pubkey, &channel.node_network_addr).await;
+
+                let open_channel = tonic_lnd::rpc::OpenChannelRequest {
+                    node_pubkey: Vec::from(&channel.node_pubkey as &[_]),
+                    local_funding_amount: channel.amount.as_sat().try_into().expect("amount too large"),
+                    push_sat: 0,
+                    private: false,
+                    min_htlc_msat: 0,
+                    remote_csv_delay: 0,
+                    spend_unconfirmed: false,
+                    close_address: String::new(),
+                    funding_shim: Some(funding_shim),
+                    remote_max_value_in_flight_msat: channel.amount.as_sat() * 1000,
+                    remote_max_htlcs: 10,
+                    max_local_csv: 288,
+                    ..Default::default()
+                };
+                let mut update_stream = lnd.open_channel(open_channel).await.expect("Failed to call open channel").into_inner();
+                while let Some(message) = update_stream.message().await.expect("failed to receive update") {
+                    assert_eq!(message.pending_chan_id, chid);
+                    if let Some(update) = message.update {
+                        use tonic_lnd::rpc::open_status_update::Update;
+                        match update {
+                            Update::PsbtFund(ready) => {
+                                let mut bytes = &*ready.psbt;
+                                let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
+                                eprintln!("PSBT received from LND: {:#?}", tx);
+                                assert_eq!(tx.global.unsigned_tx.output.len(), 1);
+
+                                txouts.extend(tx.global.unsigned_tx.output);
+                                break;
+                            },
+                            // panic?
+                            x => panic!("Unexpected update {:?}", x),
+                        }
                     }
                 }
             }
 
-            Ok(Response::new(Body::empty()))
+            let mut txouts = txouts.into_iter();
+            let channel_output = txouts.next().expect("no channels");
+
+            if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
+                assert_eq!(channel_output.value, scheduled_payjoin.channels[0].amount.as_sat());
+                *our_output = channel_output;
+            } else {
+                our_output.value = scheduled_payjoin.wallet_amount.as_sat();
+                psbt.global.unsigned_tx.output.push(channel_output)
+            }
+
+            psbt.global.unsigned_tx.output.extend(txouts);
+            psbt.outputs.resize_with(psbt.global.unsigned_tx.output.len(), Default::default);
+
+            eprintln!("PSBT to be given to LND: {:#?}", psbt);
+            let mut psbt_bytes = Vec::new();
+            psbt.consensus_encode(&mut psbt_bytes).unwrap();
+
+            for chid in &chids {
+                let psbt_verify = tonic_lnd::rpc::FundingPsbtVerify {
+                    pending_chan_id: Vec::from(chid as &[_]),
+                    funded_psbt: psbt_bytes.clone(),
+                    skip_finalize: true,
+                };
+
+                let transition_msg = tonic_lnd::rpc::FundingTransitionMsg {
+                    trigger: Some(tonic_lnd::rpc::funding_transition_msg::Trigger::PsbtVerify(psbt_verify)),
+                };
+
+                lnd.funding_state_step(transition_msg).await.expect("failed to execute funding state step");
+            }
+
+            // Reset transaction state to be non-finalized
+            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx).expect("resetting tx failed");
+            let mut psbt_bytes = Vec::new();
+            eprintln!("PSBT that will be returned: {:#?}", psbt);
+            psbt.consensus_encode(&mut psbt_bytes).unwrap();
+            let psbt_bytes = base64::encode(psbt_bytes);
+
+            Ok(Response::new(Body::from(psbt_bytes)))
         },
 
         // Return the 404 Not Found for other routes.
