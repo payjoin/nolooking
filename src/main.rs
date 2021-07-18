@@ -8,6 +8,7 @@ use std::convert::TryInto;
 struct ScheduledChannel {
     fallback_address: Address,
     node_pubkey: [u8; 33],
+    node_network_addr: String,
     channel_amount: bitcoin::Amount,
     wallet_amount: bitcoin::Amount,
     client: tonic_lnd::Client,
@@ -70,6 +71,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         node_pubkey,
         channel_amount,
         wallet_amount,
+        node_network_addr: node_addr.to_owned(),
         client,
     };
 
@@ -151,6 +153,8 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
             let funding_shim = tonic_lnd::rpc::FundingShim {
                 shim: Some(funding_shim),
             };
+
+            ensure_connected(&mut lnd, &scheduled_channel.node_pubkey, &scheduled_channel.node_network_addr).await;
 
             let open_channel = tonic_lnd::rpc::OpenChannelRequest {
                 node_pubkey: Vec::from(&scheduled_channel.node_pubkey as &[_]),
