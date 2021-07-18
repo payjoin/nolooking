@@ -11,6 +11,25 @@ struct ScheduledChannel {
     channel_amount: bitcoin::Amount,
 }
 
+impl ScheduledChannel {
+    fn from_args(addr: &str, amount: &str) -> Self {
+        let mut node_pubkey = [0; 33];
+        let mut node_addr_parts = addr.split('@');
+        let node_pubkey_str = node_addr_parts.next().expect("split returned empty iterator");
+        let node_addr = node_addr_parts.next().expect("missing host:port");
+        assert!(node_addr_parts.next().is_none());
+
+        hex::decode_to_slice(node_pubkey_str, &mut node_pubkey).expect("invalid node pubkey");
+        let channel_amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi).expect("invalid channel amount");
+
+        ScheduledChannel {
+            node_pubkey,
+            node_network_addr: node_addr.to_owned(),
+            channel_amount,
+        }
+    }
+}
+
 #[derive(Clone)]
 struct ScheduledPayJoin {
     fallback_address: Address,
@@ -47,35 +66,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("args: <bind_port> <address> <cert> <macaroon> <dest_node_uri> <channel_amount> [<wallet_amount>]");
         return Ok(());
     }
+    let scheduled_channel = ScheduledChannel::from_args(&args[5], &args[6]);
+
     let mut client = tonic_lnd::connect(args[2].clone(), &args[3], &args[4])
         .await
         .expect("failed to connect");
     let address = client.new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), }).await?.into_inner().address;
-    let channel_amount = bitcoin::Amount::from_str_in(&args[6], bitcoin::Denomination::Satoshi).expect("invalid channel amount");
     let wallet_amount = if args.len() > 7 {
         bitcoin::Amount::from_str_in(&args[7], bitcoin::Denomination::Satoshi).expect("invalid wallet amount")
     } else {
         bitcoin::Amount::ZERO
     };
-    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (channel_amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
+    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (scheduled_channel.channel_amount + wallet_amount).to_string_in(bitcoin::Denomination::Bitcoin));
 
     let address = address.parse::<Address>().expect("lnd returned invalid address");
 
     let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
-    let mut node_pubkey = [0; 33];
-    let mut node_addr_parts = args[5].split('@');
-    let node_pubkey_str = node_addr_parts.next().expect("split returned empty iterator");
-    let node_addr = node_addr_parts.next().expect("missing host:port");
-    assert!(node_addr_parts.next().is_none());
-    hex::decode_to_slice(node_pubkey_str, &mut node_pubkey).expect("invalid node pubkey");
 
-    ensure_connected(&mut client, &node_pubkey, node_addr).await;
-
-    let scheduled_channel = ScheduledChannel {
-        node_pubkey,
-        channel_amount,
-        node_network_addr: node_addr.to_owned(),
-    };
+    ensure_connected(&mut client, &scheduled_channel.node_pubkey, &scheduled_channel.node_network_addr).await;
 
     let scheduled_payjoin = ScheduledPayJoin {
         fallback_address: address,
