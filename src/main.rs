@@ -6,12 +6,17 @@ use std::convert::TryInto;
 
 #[derive(Clone)]
 struct ScheduledChannel {
-    fallback_address: Address,
     node_pubkey: [u8; 33],
     node_network_addr: String,
     channel_amount: bitcoin::Amount,
+}
+
+#[derive(Clone)]
+struct ScheduledPayJoin {
+    fallback_address: Address,
     wallet_amount: bitcoin::Amount,
     client: tonic_lnd::Client,
+    channel: ScheduledChannel,
 }
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &[u8; 33], node_addr: &str) {
@@ -67,20 +72,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     ensure_connected(&mut client, &node_pubkey, node_addr).await;
 
     let scheduled_channel = ScheduledChannel {
-        fallback_address: address,
         node_pubkey,
         channel_amount,
-        wallet_amount,
         node_network_addr: node_addr.to_owned(),
+    };
+
+    let scheduled_payjoin = ScheduledPayJoin {
+        fallback_address: address,
+        wallet_amount,
+        channel: scheduled_channel,
         client,
     };
 
     let service = make_service_fn(move |_| {
-        let scheduled_channel = scheduled_channel.clone();
+        let scheduled_payjoin = scheduled_payjoin.clone();
 
         async move {
 
-            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(scheduled_channel.clone(), request)))
+            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(scheduled_payjoin.clone(), request)))
         }
     });
 
@@ -93,7 +102,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
 
     match (req.method(), req.uri().path()) {
@@ -104,7 +113,7 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
 
-            let mut lnd = scheduled_channel.client;
+            let mut lnd = scheduled_payjoin.client;
             let query = req
                 .uri()
                 .query()
@@ -122,7 +131,7 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
             let mut reader = &*bytes;
-            let our_script = scheduled_channel.fallback_address.script_pubkey();
+            let our_script = scheduled_payjoin.fallback_address.script_pubkey();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
             for input in &mut psbt.global.unsigned_tx.input {
@@ -130,10 +139,10 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
             let mut our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
-            assert_eq!(our_output.value, (scheduled_channel.channel_amount + scheduled_channel.wallet_amount).as_sat());
+            assert_eq!(our_output.value, (scheduled_payjoin.channel.channel_amount + scheduled_payjoin.wallet_amount).as_sat());
 
-            let base_psbt = if scheduled_channel.wallet_amount != bitcoin::Amount::ZERO {
-                our_output.value = scheduled_channel.wallet_amount.as_sat();
+            let base_psbt = if scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO {
+                our_output.value = scheduled_payjoin.wallet_amount.as_sat();
                 let mut psbt_bytes = Vec::new();
                 psbt.consensus_encode(&mut psbt_bytes).expect("writing to Vecc never fails");
                 our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
@@ -154,11 +163,11 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
                 shim: Some(funding_shim),
             };
 
-            ensure_connected(&mut lnd, &scheduled_channel.node_pubkey, &scheduled_channel.node_network_addr).await;
+            ensure_connected(&mut lnd, &scheduled_payjoin.channel.node_pubkey, &scheduled_payjoin.channel.node_network_addr).await;
 
             let open_channel = tonic_lnd::rpc::OpenChannelRequest {
-                node_pubkey: Vec::from(&scheduled_channel.node_pubkey as &[_]),
-                local_funding_amount: scheduled_channel.channel_amount.as_sat().try_into().expect("amount too large"),
+                node_pubkey: Vec::from(&scheduled_payjoin.channel.node_pubkey as &[_]),
+                local_funding_amount: scheduled_payjoin.channel.channel_amount.as_sat().try_into().expect("amount too large"),
                 push_sat: 0,
                 private: false,
                 min_htlc_msat: 0,
@@ -166,7 +175,7 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
                 spend_unconfirmed: false,
                 close_address: String::new(),
                 funding_shim: Some(funding_shim),
-                remote_max_value_in_flight_msat: scheduled_channel.channel_amount.as_sat() * 1000,
+                remote_max_value_in_flight_msat: scheduled_payjoin.channel.channel_amount.as_sat() * 1000,
                 remote_max_htlcs: 10,
                 max_local_csv: 288,
                 ..Default::default()
@@ -181,10 +190,10 @@ async fn handle_web_req(scheduled_channel: ScheduledChannel, req: Request<Body>)
                             let mut bytes = &*ready.psbt;
                             let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
                             eprintln!("PSBT received from LND: {:#?}", tx);
-                            if scheduled_channel.wallet_amount == bitcoin::Amount::ZERO {
+                            if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
                                 let mut outputs = tx.global.unsigned_tx.output.into_iter();
                                 let channel_output = outputs.next().expect("LND didn't return any output");
-                                assert_eq!(channel_output.value, scheduled_channel.channel_amount.as_sat());
+                                assert_eq!(channel_output.value, scheduled_payjoin.channel.channel_amount.as_sat());
                                 *our_output = channel_output;
                             } else {
                                 psbt = tx;
