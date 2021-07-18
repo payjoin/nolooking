@@ -9,11 +9,11 @@ For the love of god, do NOT use it on mainnet just yet!
 If you don't want to wait long, help with reviews and PRs.**
 
 This server optimizes your channel opening from a remote wallet which supports PayJoin.
-It enables you to open a channel on remote LND with empty wallet using sats in PayJoin-compliant wallet.
-This way you save one chain transaction when opening from Wasabi, BTCPayServer, Blue Wallet or other PayJoin-supporting wallet.
+It enables you to open one or more channels from remote LND with empty wallet using sats in PayJoin-compliant wallet.
+This way you save one chain transaction when opening from Wasabi, Blue Wallet, BTCPayServer (currently buggy), or other PayJoin-supporting wallet.
 It's basically a user-friendly way to do PSBT funding flow.
 
-And yes, int he future you could give the URI/QR code to someone else, so you receive PayJoin transaction and simultaneously open Lightning channel with received money.
+And yes, in the future you could give the URI/QR code to someone else, so you receive PayJoin transaction and simultaneously open Lightning channel with received money.
 
 ## Limitations and future plans
 
@@ -37,7 +37,7 @@ And yes, int he future you could give the URI/QR code to someone else, so you re
 5. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
 6. Connect to the peer using `lncli connect ...`
-7. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon DEST_NODE_ID AMOUNS_IN_SATS [CHAIN_WALLET_AMOUNT_SATS]`
+7. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon FEE_RATE_SAT_PER_VB DEST_NODE_ID AMOUNS_IN_SATS [DEST_NODE_ID AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
 8. Copy BIP21 from command line output and paste it into one of the supported wallets
 9. Confirm the transaction and pray it works
 
