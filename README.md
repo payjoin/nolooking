@@ -8,12 +8,39 @@
 For the love of god, do NOT use it on mainnet just yet!
 If you don't want to wait long, help with reviews and PRs.**
 
+## About
+
 This server optimizes your channel opening from a remote wallet which supports PayJoin.
 It enables you to open one or more channels from remote LND with empty wallet using sats in PayJoin-compliant wallet.
 This way you save one chain transaction when opening from Wasabi, Blue Wallet, BTCPayServer (currently buggy), or other PayJoin-supporting wallet.
 It's basically a user-friendly way to do PSBT funding flow.
 
 And yes, in the future you could give the URI/QR code to someone else, so you receive PayJoin transaction and simultaneously open Lightning channel with received money.
+
+### Expected fee savings
+
+The classic scenario of sending to LND wallet and then opening a channel involves two transactions.
+With PayJoin it involves just one transaction, saving 106 vB (68 vB input + 22 vB script pubkey + 8 vB output amount + 4 vB version + 4vB timelock)
+Sending to a node and then opening 10 channels can be turn 11 transactions into one saving 1060 vB
+Same if someone else pays you and you already decided to use the received money to open channel(s).
+You will also save shitton of time not having to wait for confirmations.
+(There's `--spend-unconfirmed`, but maybe not a good idea for long chains?)
+
+### Expected privacy implications
+
+If you open a channel with ususal LN wallet, it's pretty much certain that the change belongs to the funder.
+This tool makes it uncertain because it could've been a payer.
+This tool may produce two changes - it's still unclear whether both or only one belongs to the funder and it may be hard to find which one.
+(But there's a good chance it'll be revealed eventually.)
+
+Just as with any other PayJoin, it's unclear whether all inputs belong to the funder or some of them don't.
+
+Sadly, I don't think the payer can safely open a channel from change(s) but I have some ideas how it could be achieved in the future.
+If the channels were truly private it'd make analysis even more confusing (incorrectly assume it's one node).
+
+Post-Taproot-LN it will be impossible to distinguish CoinJoin from batch open of several same-sized private channels.
+Actually, CoinJoin and batch opening of several same-sized private channels could be one transaction.
+Good luck analyzing that!
 
 ## Limitations and future plans
 
