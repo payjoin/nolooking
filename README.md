@@ -42,6 +42,12 @@ Post-Taproot-LN it will be impossible to distinguish CoinJoin from batch open of
 Actually, CoinJoin and batch opening of several same-sized private channels could be one transaction.
 Good luck analyzing that!
 
+### UX implications
+
+All this is possible without loptos by manually exchanging PSBTs.
+BIP78 just turns that tedious back and forth into scanning/clicking one link followed by confirmation in the wallet.
+In other words, your grandmother will be able to somewhat privately open a bunch of channels for you, if she has a BIP78-capable wallet.
+
 ## Limitations and future plans
 
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
