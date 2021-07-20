@@ -21,7 +21,7 @@ And yes, in the future you could give the URI/QR code to someone else, so you re
 
 The classic scenario of sending to LND wallet and then opening a channel involves two transactions.
 With PayJoin it involves just one transaction, saving 106 vB (68 vB input + 22 vB script pubkey + 8 vB output amount + 4 vB version + 4vB timelock)
-Sending to a node and then opening 10 channels can be turn 11 transactions into one saving 1060 vB
+Sending to a node and then opening 10 channels can turn 11 transactions into one, saving 1060 vB.
 Same if someone else pays you and you already decided to use the received money to open channel(s).
 You will also save shitton of time not having to wait for confirmations.
 (There's `--spend-unconfirmed`, but maybe not a good idea for long chains?)
