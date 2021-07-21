@@ -170,40 +170,44 @@ async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
-    if args.len() < 7 {
-        println!("Usage: {} <bind_port> <address> <cert> <macaroon> <fee_rate_sat_per_vb> <dest_node_uri> <channel_amount> [<dest_node_uri> <channel_amount> ...] [<wallet_amount>]", args[0]);
+    if args.len() < 5 || (args.len() > 5 && args.len() < 8) {
+        println!("Usage: {} <bind_port> <address> <cert> <macaroon> [<fee_rate_sat_per_vb> (<dest_node_uri> <channel_amount> ...) [<wallet_amount>]]", args[0]);
         return Ok(());
     }
-    let mut pairs = args[6..].chunks_exact(2);
-    let scheduled_channels = pairs.by_ref().map(|args| ScheduledChannel::from_args(&args[0], &args[1])).collect::<Vec<_>>();
 
     let mut client = tonic_lnd::connect(args[2].clone(), &args[3], &args[4])
         .await
         .expect("failed to connect");
     let address = get_new_bech32_address(&mut client).await;
-    let wallet_amount = pairs
-        .remainder()
-        .iter()
-        .next()
-        .map(|amount| bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi).expect("invalid wallet amount"))
-        .unwrap_or(bitcoin::Amount::ZERO);
 
-    let fee_rate = args[5].parse::<u64>().expect("invalid fee rate");
+    let mut handler = Handler::new(client);
 
-    let scheduled_payjoin = ScheduledPayJoin {
-        wallet_amount,
-        channels: scheduled_channels,
-        fee_rate,
-    };
+    if args.len() > 5 {
+        let fee_rate = args[5].parse::<u64>().expect("invalid fee rate");
 
-    scheduled_payjoin.test_connections(&mut client).await;
+        let mut pairs = args[6..].chunks_exact(2);
+        let wallet_amount = pairs
+            .remainder()
+            .iter()
+            .next()
+            .map(|amount| bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi).expect("invalid wallet amount"))
+            .unwrap_or(bitcoin::Amount::ZERO);
+        let scheduled_channels = pairs.by_ref().map(|args| ScheduledChannel::from_args(&args[0], &args[1])).collect::<Vec<_>>();
 
-    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, scheduled_payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin));
+        let scheduled_payjoin = ScheduledPayJoin {
+            wallet_amount,
+            channels: scheduled_channels,
+            fee_rate,
+        };
+
+        scheduled_payjoin.test_connections(&mut handler.client).await;
+
+        println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, scheduled_payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin));
+
+        handler.payjoins.insert(&address, scheduled_payjoin).expect("New Handler is supposed to be empty");
+    }
 
     let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
-
-    let handler = Handler::new(client);
-    handler.payjoins.insert(&address, scheduled_payjoin).expect("New Handler is supposed to be empty");
 
     let service = make_service_fn(move |_| {
         let handler = handler.clone();
