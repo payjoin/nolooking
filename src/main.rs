@@ -7,8 +7,8 @@ use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
-#[derive(Copy, Clone)]
-struct NodeId([u8; 33]);
+#[derive(Copy, Clone, serde_derive::Deserialize)]
+struct NodeId(#[serde(with = "hex::serde")][u8; 33]);
 
 impl NodeId {
     fn to_vec(&self) -> Vec<u8> {
@@ -38,10 +38,11 @@ impl std::convert::TryFrom<String> for NodeId {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde_derive::Deserialize)]
 struct ScheduledChannel {
     node_pubkey: NodeId,
     node_network_addr: String,
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     amount: bitcoin::Amount,
 }
 
@@ -63,18 +64,33 @@ impl ScheduledChannel {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, serde_derive::Deserialize)]
 struct ScheduledPayJoin {
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     wallet_amount: bitcoin::Amount,
     channels: Vec<ScheduledChannel>,
     fee_rate: u64,
+}
+
+impl ScheduledPayJoin {
+    fn total_amount(&self) -> bitcoin::Amount {
+        let fees = calculate_fees(self.channels.len() as u64, self.fee_rate, self.wallet_amount != bitcoin::Amount::ZERO);
+
+        self.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add) + self.wallet_amount + fees
+    }
+
+    async fn test_connections(&self, client: &mut tonic_lnd::Client) {
+        for channel in &self.channels {
+            ensure_connected(client, &channel.node_pubkey, &channel.node_network_addr).await;
+        }
+    }
 }
 
 #[derive(Clone, Default)]
 struct PayJoins(Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>);
 
 impl PayJoins {
-    fn insert(&self, address: &bitcoin::Address, payjoin: ScheduledPayJoin) -> Result<(), ()> {
+    fn insert(&self, address: &Address, payjoin: ScheduledPayJoin) -> Result<(), ()> {
         use std::collections::hash_map::Entry;
 
         match self.0.lock().expect("payjoins mutex poisoned").entry(address.script_pubkey()) {
@@ -140,6 +156,17 @@ fn calculate_fees(channel_count: u64, fee_rate: u64, has_additional_output: bool
     bitcoin::Amount::from_sat(fee_rate * additional_vsize)
 }
 
+async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
+    client
+        .new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), })
+        .await
+        .expect("failed to get chain address")
+        .into_inner()
+        .address
+        .parse()
+        .expect("lnd returned invalid address")
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args: Vec<String> = std::env::args().collect();
@@ -153,7 +180,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut client = tonic_lnd::connect(args[2].clone(), &args[3], &args[4])
         .await
         .expect("failed to connect");
-    let address = client.new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), }).await?.into_inner().address;
+    let address = get_new_bech32_address(&mut client).await;
     let wallet_amount = pairs
         .remainder()
         .iter()
@@ -163,26 +190,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let fee_rate = args[5].parse::<u64>().expect("invalid fee rate");
 
-    let fees = calculate_fees(scheduled_channels.len() as u64, fee_rate, wallet_amount != bitcoin::Amount::ZERO);
-
-    let total_channel_amount: bitcoin::Amount = scheduled_channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
-
-    println!("Expected fee: {} sat", fees.as_sat());
-    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, (total_channel_amount + wallet_amount + fees).to_string_in(bitcoin::Denomination::Bitcoin));
-
-    let address = address.parse::<Address>().expect("lnd returned invalid address");
-
-    let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
-
-    for channel in &scheduled_channels {
-        ensure_connected(&mut client, &channel.node_pubkey, &channel.node_network_addr).await;
-    }
-
     let scheduled_payjoin = ScheduledPayJoin {
         wallet_amount,
         channels: scheduled_channels,
         fee_rate,
     };
+
+    scheduled_payjoin.test_connections(&mut client).await;
+
+    println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, scheduled_payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin));
+
+    let addr = ([127, 0, 0, 1], args[1].parse().expect("invalid port number")).into();
 
     let handler = Handler::new(client);
     handler.payjoins.insert(&address, scheduled_payjoin).expect("New Handler is supposed to be empty");
@@ -205,7 +223,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_web_req(handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
 
     match (req.method(), req.uri().path()) {
@@ -342,6 +360,18 @@ async fn handle_web_req(handler: Handler, req: Request<Body>) -> Result<Response
             let psbt_bytes = base64::encode(psbt_bytes);
 
             Ok(Response::new(Body::from(psbt_bytes)))
+        },
+
+        (&Method::POST, "/pj/schedule") => {
+            let bytes = hyper::body::to_bytes(req.into_body()).await?;
+            let request = serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
+            request.test_connections(&mut handler.client).await;
+            let address = get_new_bech32_address(&mut handler.client).await;
+            let total_amount = request.total_amount();
+            handler.payjoins.insert(&address, request).expect("address reuse");
+
+            let uri = format!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, total_amount.to_string_in(bitcoin::Denomination::Bitcoin));
+            Ok(Response::new(Body::from(uri)))
         },
 
         // Return the 404 Not Found for other routes.
