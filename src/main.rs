@@ -2,7 +2,10 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
+use bitcoin::{TxOut, Script};
 use std::convert::TryInto;
+use std::sync::{Arc, Mutex};
+use std::collections::HashMap;
 
 #[derive(Clone)]
 struct ScheduledChannel {
@@ -32,11 +35,49 @@ impl ScheduledChannel {
 
 #[derive(Clone)]
 struct ScheduledPayJoin {
-    fallback_address: Address,
     wallet_amount: bitcoin::Amount,
-    client: tonic_lnd::Client,
     channels: Vec<ScheduledChannel>,
     fee_rate: u64,
+}
+
+#[derive(Clone, Default)]
+struct PayJoins(Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>);
+
+impl PayJoins {
+    fn insert(&self, address: &bitcoin::Address, payjoin: ScheduledPayJoin) -> Result<(), ()> {
+        use std::collections::hash_map::Entry;
+
+        match self.0.lock().expect("payjoins mutex poisoned").entry(address.script_pubkey()) {
+            Entry::Vacant(place) => {
+                place.insert(payjoin);
+                Ok(())
+            },
+            Entry::Occupied(_) => Err(()),
+        }
+    }
+
+    fn find<'a>(&self, txouts: &'a mut [TxOut]) -> Option<(&'a mut TxOut, ScheduledPayJoin)> {
+        let mut payjoins = self.0.lock().expect("payjoins mutex poisoned");
+        txouts
+            .iter_mut()
+            .find_map(|txout| payjoins.remove(&txout.script_pubkey).map(|payjoin| (txout, payjoin)))
+    }
+}
+
+#[derive(Clone)]
+struct Handler {
+    client: tonic_lnd::Client,
+    payjoins: PayJoins,
+}
+
+impl Handler {
+    fn new(client: tonic_lnd::Client) -> Self {
+        Handler {
+            client,
+            payjoins: Default::default(),
+        }
+    }
+
 }
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &[u8; 33], node_addr: &str) {
@@ -108,19 +149,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let scheduled_payjoin = ScheduledPayJoin {
-        fallback_address: address,
         wallet_amount,
         channels: scheduled_channels,
-        client,
         fee_rate,
     };
 
+    let handler = Handler::new(client);
+    handler.payjoins.insert(&address, scheduled_payjoin).expect("New Handler is supposed to be empty");
+
     let service = make_service_fn(move |_| {
-        let scheduled_payjoin = scheduled_payjoin.clone();
+        let handler = handler.clone();
 
         async move {
 
-            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(scheduled_payjoin.clone(), request)))
+            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(handler.clone(), request)))
         }
     });
 
@@ -133,7 +175,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn handle_web_req(handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
 
     match (req.method(), req.uri().path()) {
@@ -144,7 +186,7 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
 
-            let mut lnd = scheduled_payjoin.client;
+            let mut lnd = handler.client;
             let query = req
                 .uri()
                 .query()
@@ -162,14 +204,13 @@ async fn handle_web_req(scheduled_payjoin: ScheduledPayJoin, req: Request<Body>)
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
             let mut reader = &*bytes;
-            let our_script = scheduled_payjoin.fallback_address.script_pubkey();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
             for input in &mut psbt.global.unsigned_tx.input {
                 // clear signature
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
-            let mut our_output = psbt.global.unsigned_tx.output.iter_mut().find(|output| output.script_pubkey == our_script).expect("the transaction doesn't contain our output");
+            let (our_output, scheduled_payjoin) = handler.payjoins.find(&mut psbt.global.unsigned_tx.output).expect("the transaction doesn't contain our output");
             let total_channel_amount: bitcoin::Amount = scheduled_payjoin.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
             let fees = calculate_fees(scheduled_payjoin.channels.len() as u64, scheduled_payjoin.fee_rate, scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO);
 
