@@ -51,7 +51,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Limitations and future plans
 
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
-* **Only works with a [forked LND](https://github.com/guggero/lnd/tree/psbt-no-final-tx)** - there's a PR against LND, should land in 0.14.
+* **Only works with a [forked LND](https://github.com/Kixunil/lnd/tree/awesome-lnd-preview/)** - there's a PR against LND, should land in 0.14.
 * Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
 * CLI-only
 * No way to inteligently manipulate the amount
@@ -63,9 +63,9 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Usage
 
 0. You need a [recent version of Rust](https://rustup.rs) to compile this.
-1. You need to clone the **forked** LND: `git clone -b psbt-no-final-tx https://github.com/guggero/lnd/`
+1. You need to clone the **forked** LND: `git clone -b awesome-lnd-preview https://github.com/Kixunil/lnd/`
 2. `LND_REPO_DIR=path/to/forked/lnd/ cargo build`
-3. Build forked LND - connsider merging in fix from [#5539](https://github.com/lightningnetwork/lnd/pull/5539)
+3. Build forked LND
 4. Deploy forked LND (replacing binary in deployment followed by restart works)
 5. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
