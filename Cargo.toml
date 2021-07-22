@@ -4,7 +4,8 @@ version = "0.1.0"
 authors = ["Martin Habovstiak <martin.habovstiak@gmail.com>"]
 edition = "2018"
 
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+[features]
+test_paths = []
 
 [dependencies]
 bitcoin = { version = "0.27.0", features = ["use-serde"] }

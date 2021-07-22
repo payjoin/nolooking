@@ -53,7 +53,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
 * **Only works with a [forked LND](https://github.com/Kixunil/lnd/tree/awesome-lnd-preview/)** - there's a PR against LND, should land in 0.14.
 * Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
-* CLI-only
+* Unpolished UI
 * No way to inteligently manipulate the amount
 * No discount possible
 * Invalid request can kill whole server

@@ -7,6 +7,12 @@ use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 
+#[cfg(not(feature = "test_paths"))]
+const STATIC_DIR: &str = "/usr/share/loptos/static";
+
+#[cfg(feature = "test_paths")]
+const STATIC_DIR: &str = "static";
+
 #[derive(Copy, Clone, serde_derive::Deserialize)]
 struct NodeId(#[serde(with = "hex::serde")][u8; 33]);
 
@@ -229,11 +235,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
+    use std::path::Path;
 
     match (req.method(), req.uri().path()) {
-        (&Method::GET, "/") => Ok(Response::new(Body::from(
-            "Check terminal output for payjoin link and use it in one of the supported wallets",
-        ))),
+        (&Method::GET, "/pj") => {
+            let index = std::fs::read(Path::new(STATIC_DIR).join("index.html")).expect("can't open index");
+            Ok(Response::new(Body::from(index)))
+        },
+
+        (&Method::GET, path) if path.starts_with("/pj/static/") => {
+            let directory_traversal_vulnerable_path = &path[("/pj/static/".len())..];
+            let file = std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path)).expect("can't open static file");
+            Ok(Response::new(Body::from(file)))
+        },
 
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
@@ -375,7 +389,9 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             handler.payjoins.insert(&address, request).expect("address reuse");
 
             let uri = format!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, total_amount.to_string_in(bitcoin::Denomination::Bitcoin));
-            Ok(Response::new(Body::from(uri)))
+            let mut response = Response::new(Body::from(uri));
+            response.headers_mut().insert(hyper::header::CONTENT_TYPE, "text/plain".parse().unwrap());
+            Ok(response)
         },
 
         // Return the 404 Not Found for other routes.
