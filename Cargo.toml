@@ -7,7 +7,7 @@ edition = "2018"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-bitcoin = { version = "0.26.0", features = ["use-serde"] }
+bitcoin = { version = "0.27.0", features = ["use-serde"] }
 hyper = "0.14.9"
 tonic_lnd = "0.1"
 tokio = { version = "1.7.1", features = ["rt-multi-thread"] }
