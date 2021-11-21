@@ -7,6 +7,7 @@ use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
 use std::fmt;
+use ln_types::P2PAddress;
 
 #[cfg(not(feature = "test_paths"))]
 const STATIC_DIR: &str = "/usr/share/loptos/static";
@@ -14,58 +15,20 @@ const STATIC_DIR: &str = "/usr/share/loptos/static";
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
 
-#[derive(Copy, Clone, serde_derive::Deserialize)]
-struct NodeId(#[serde(with = "hex::serde")][u8; 33]);
-
-impl NodeId {
-    fn to_vec(&self) -> Vec<u8> {
-        Vec::from(&self.0 as &[_])
-    }
-
-    fn to_string(&self) -> String {
-        hex::encode(&self.0)
-    }
-}
-
-impl std::str::FromStr for NodeId {
-    type Err = hex::FromHexError;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let mut node_pubkey = [0; 33];
-        hex::decode_to_slice(s, &mut node_pubkey)?;
-        Ok(NodeId(node_pubkey))
-    }
-}
-
-impl std::convert::TryFrom<String> for NodeId {
-    type Error = hex::FromHexError;
-
-    fn try_from(s: String) -> Result<Self, Self::Error> {
-        s.parse()
-    }
-}
-
 #[derive(Clone, serde_derive::Deserialize)]
 struct ScheduledChannel {
-    node_pubkey: NodeId,
-    node_network_addr: String,
+    node: P2PAddress,
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     amount: bitcoin::Amount,
 }
 
 impl ScheduledChannel {
     fn from_args(addr: &str, amount: &str) -> Self {
-        let mut node_addr_parts = addr.split('@');
-        let node_pubkey_str = node_addr_parts.next().expect("split returned empty iterator");
-        let node_addr = node_addr_parts.next().expect("missing host:port");
-        assert!(node_addr_parts.next().is_none());
-
-        let node_pubkey = node_pubkey_str.parse().expect("invalid node pubkey");
+        let node = addr.parse().expect("invalid node address");
         let amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi).expect("invalid channel amount");
 
         ScheduledChannel {
-            node_pubkey,
-            node_network_addr: node_addr.to_owned(),
+            node,
             amount,
         }
     }
@@ -88,7 +51,7 @@ impl ScheduledPayJoin {
 
     async fn test_connections(&self, client: &mut tonic_lnd::Client) {
         for channel in &self.channels {
-            ensure_connected(client, &channel.node_pubkey, &channel.node_network_addr).await;
+            ensure_connected(client, &channel.node).await;
         }
     }
 }
@@ -181,11 +144,11 @@ impl From<tonic_lnd::Error> for CheckError {
 }
 
 
-async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &NodeId, node_addr: &str) {
-    let pubkey = node_pubkey.to_string();
+async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
+    let pubkey = node.node_id.to_string();
     let peer_addr = tonic_lnd::rpc::LightningAddress {
-        pubkey: pubkey.clone(),
-        host: node_addr.to_owned(),
+        pubkey: pubkey,
+        host: node.as_host_port().to_string(),
     };
 
     let connect_req = tonic_lnd::rpc::ConnectPeerRequest {
@@ -196,7 +159,7 @@ async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &NodeId, 
 
     client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
         if !error.message().starts_with("already connected to peer") {
-            panic!("failed to connect to peer {}@{}: {:?}", pubkey, node_addr, error);
+            panic!("failed to connect to peer {}: {:?}", node, error);
         }
     });
 }
@@ -348,10 +311,10 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                     shim: Some(funding_shim),
                 };
 
-                ensure_connected(&mut lnd, &channel.node_pubkey, &channel.node_network_addr).await;
+                ensure_connected(&mut lnd, &channel.node).await;
 
                 let open_channel = tonic_lnd::rpc::OpenChannelRequest {
-                    node_pubkey: channel.node_pubkey.to_vec(),
+                    node_pubkey: channel.node.node_id.to_vec(),
                     local_funding_amount: channel.amount.as_sat().try_into().expect("amount too large"),
                     push_sat: 0,
                     private: false,

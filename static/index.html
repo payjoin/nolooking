@@ -39,8 +39,7 @@
 					var row = table.rows[i];
 					var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
 					var amount = parseInt(row.cells[1].getElementsByTagName("input")[0].value);
-					var node_addr_split = node_addr.split('@');
-					channels.push({ "node_pubkey": node_addr_split[0], "node_network_addr": node_addr_split[1], "amount": amount });
+					channels.push({ "node": node_addr, "amount": amount });
 				}
 				request = {
 					"wallet_amount": wallet_amount,

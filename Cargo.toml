@@ -13,8 +13,8 @@ hyper = "0.14.9"
 tonic_lnd = "0.2.1"
 tokio = { version = "1.7.1", features = ["rt-multi-thread"] }
 rand = "0.8.4"
-hex = { version = "0.4.3", features = ["serde"] }
 base64 = "0.13.0"
 serde = "1.0.126"
 serde_json = "1.0.64"
 serde_derive = "1.0.126"
+ln-types = { version = "0.1.2", features = ["serde"] }
