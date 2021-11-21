@@ -6,6 +6,7 @@ use bitcoin::{TxOut, Script};
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
+use std::fmt;
 
 #[cfg(not(feature = "test_paths"))]
 const STATIC_DIR: &str = "/usr/share/loptos/static";
@@ -123,14 +124,62 @@ struct Handler {
 }
 
 impl Handler {
-    fn new(client: tonic_lnd::Client) -> Self {
-        Handler {
+    async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
+        let version = client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
+        let mut iter = match version.find('-') {
+            Some(pos) => &version[..pos],
+            None => &version,
+        }.split('.');
+        let major = iter.next().expect("split returns non-empty iterator").parse::<u64>();
+        let minor = iter.next().unwrap_or("0").parse::<u64>();
+        match (major, minor) {
+            (Ok(0), Ok(0..=13)) => return Err(CheckError::LNDTooOld(version)),
+            (Ok(0), Ok(14..=u64::MAX)) => (),
+            (Ok(1..=u64::MAX), Ok(_)) => (),
+            (Err(error), _) => return  Err(CheckError::VersionNumber { version, error, }),
+            (_, Err(error)) => return  Err(CheckError::VersionNumber { version, error, }),
+        }
+        Ok(Handler {
             client,
             payjoins: Default::default(),
-        }
+        })
     }
 
 }
+
+#[derive(Debug)]
+enum CheckError {
+    RequestFailed(tonic_lnd::Error),
+    VersionNumber { version: String, error: std::num::ParseIntError, },
+    LNDTooOld(String),
+}
+
+impl fmt::Display for CheckError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            CheckError::RequestFailed(_) => write!(f, "failed to get LND version"),
+            CheckError::VersionNumber { version, error: _, } => write!(f, "Unparsable LND version '{}'", version),
+            CheckError::LNDTooOld(version) => write!(f, "LND version {} is too old - it would cause GUARANTEED LOSS of sats!", version),
+        }
+    }
+}
+
+impl std::error::Error for CheckError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            CheckError::RequestFailed(error) => Some(error),
+            CheckError::VersionNumber { version: _, error, } => Some(error),
+            CheckError::LNDTooOld(_) => None,
+        }
+    }
+}
+
+impl From<tonic_lnd::Error> for CheckError {
+    fn from(value: tonic_lnd::Error) -> Self {
+        CheckError::RequestFailed(value)
+    }
+}
+
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node_pubkey: &NodeId, node_addr: &str) {
     let pubkey = node_pubkey.to_string();
@@ -186,7 +235,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("failed to connect");
     let address = get_new_bech32_address(&mut client).await;
 
-    let mut handler = Handler::new(client);
+    let mut handler = Handler::new(client).await?;
 
     if args.len() > 5 {
         let fee_rate = args[5].parse::<u64>().expect("invalid fee rate");

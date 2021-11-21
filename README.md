@@ -12,7 +12,7 @@ If you don't want to wait long, help with reviews and PRs.**
 
 This server optimizes your channel opening from a remote wallet which supports PayJoin.
 It enables you to open one or more channels from remote LND with empty wallet using sats in PayJoin-compliant wallet.
-This way you save one chain transaction when opening from Wasabi, Blue Wallet, BTCPayServer (currently buggy), or other PayJoin-supporting wallet.
+This way you save one chain transaction when opening from Wasabi (untested), Blue Wallet (untested), BTCPayServer (tested, works), or other PayJoin-supporting wallet.
 It's basically a user-friendly way to do PSBT funding flow.
 
 And yes, in the future you could give the URI/QR code to someone else, so you receive PayJoin transaction and simultaneously open Lightning channel with received money.
@@ -51,7 +51,8 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Limitations and future plans
 
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
-* **Only works with a [forked LND](https://github.com/Kixunil/lnd/tree/awesome-lnd-preview/)** - there's a PR against LND, should land in 0.14.
+* **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
+* To work with an *empty* LND wallet you need to use [my patch](https://github.com/lightningnetwork/lnd/pull/5539).
 * Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
 * Unpolished UI
 * No way to inteligently manipulate the amount
@@ -62,21 +63,18 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 ## Usage
 
-0. You need a [recent version of Rust](https://rustup.rs) to compile this.
-1. You need to clone the **forked** LND: `git clone -b awesome-lnd-preview https://github.com/Kixunil/lnd/`
-2. `LND_REPO_DIR=path/to/forked/lnd/ cargo build`
-3. Build forked LND
-4. Deploy forked LND (replacing binary in deployment followed by restart works)
-5. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
+0. You need Rust version 1.48 or higher to compile this.
+1. Assuming you already have LND 0.14
+2. `cargo build`
+3. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
-6. Connect to the peer using `lncli connect ...`
-7. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon FEE_RATE_SAT_PER_VB DEST_NODE_ID AMOUNS_IN_SATS [DEST_NODE_ID AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
-8. Copy BIP21 from command line output and paste it into one of the supported wallets
-9. Confirm the transaction and pray it works
+4. `./target/debug/loptos HTTP_BIND_PORT https://LND_GRPC_ADDRESS /path/to/cert/file /path/to/admin.macaroon FEE_RATE_SAT_PER_VB DEST_NODE_URI AMOUNS_IN_SATS [DEST_NODE_URI AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
+5. Copy BIP21 from command line output and paste it into one of the supported wallets
+6. Confirm the transaction and pray it works
 
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present another output will be added to send the amount to the internal wallet.
 This may be required in case the wallet is empty as in such case LND can not reserve sats for anchor commitments.
-However, to truly work, you need [another LND fix](https://github.com/lightningnetwork/lnd/pull/5539) (merge with the other branch).
+However, to truly work, you need [another LND fix](https://github.com/lightningnetwork/lnd/pull/5539) (merge with master).
 
 ## License
 
