@@ -1,0 +1,33 @@
+[general]
+env_prefix = "LOPTOS"
+conf_file_param = "conf"
+conf_dir_param = "conf_dir"
+doc = """
+Lightning Optimizing Opening Server 
+
+This server optimizes your channel opening from a remote wallet which supports PayJoin. It enables you to open one or more channels in a single transaction from remote LND with empty wallet using sats in PayJoin-compliant wallet. This way you save one chain transaction when opening from e.g. Wasabi, Blue Wallet, BTCPayServer, or other PayJoin-supporting wallet. It's basically a user-friendly way to do PSBT funding flow.
+"""
+
+[[param]]
+name = "bind_port"
+type = "u16"
+doc = "Loptos HTTP port to listen on"
+optional = false
+
+[[param]]
+name = "lnd_address"
+type = "String"
+doc = "LND address in the form of https://hostname:port - hostname may be localhost"
+optional = false
+
+[[param]]
+name = "lnd_cert_path"
+type = "std::path::PathBuf"
+doc = "Path to LND TLS certificate"
+optional = false
+
+[[param]]
+name = "lnd_macaroon_path"
+type = "std::path::PathBuf"
+doc = "Path to LND macaroon with open channel permission"
+optional = false
