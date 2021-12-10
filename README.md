@@ -11,11 +11,11 @@ If you don't want to wait long, help with reviews and PRs.**
 ## About
 
 This server optimizes your channel opening from a remote wallet which supports PayJoin.
-It enables you to open one or more channels from remote LND with empty wallet using sats in PayJoin-compliant wallet.
+It enables you to open one or more channels from a remote LND with an empty wallet using sats in PayJoin-compliant wallet.
 This way you save one chain transaction when opening from Wasabi (untested), Blue Wallet (untested), BTCPayServer (tested, works), or other PayJoin-supporting wallet.
 It's basically a user-friendly way to do PSBT funding flow.
 
-And yes, in the future you could give the URI/QR code to someone else, so you receive PayJoin transaction and simultaneously open Lightning channel with received money.
+And yes, in the future you could give the URI/QR code to someone else, so you receive a PayJoin transaction and simultaneously open Lightning channel with the received money.
 
 ### Expected fee savings
 
@@ -28,7 +28,7 @@ You will also save shitton of time not having to wait for confirmations.
 
 ### Expected privacy implications
 
-If you open a channel with ususal LN wallet, it's pretty much certain that the change belongs to the funder.
+If you open a channel with a ususal LN wallet, it's pretty much certain that the change belongs to the funder.
 This tool makes it uncertain because it could've been a payer.
 This tool may produce two changes - it's still unclear whether both or only one belongs to the funder and it may be hard to find which one.
 (But there's a good chance it'll be revealed eventually.)
@@ -52,7 +52,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
 * **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
-* To work with an *empty* LND wallet you need to use [my patch](https://github.com/lightningnetwork/lnd/pull/5539).
+* To work with an *empty* LND wallet you need to use LND 0.14.2 or the `master` branch while it's unreleased.
 * Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
 * Unpolished UI
 * No way to inteligently manipulate the amount
@@ -64,7 +64,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Usage
 
 0. You need Rust version 1.48 or higher to compile this.
-1. Assuming you already have LND 0.14
+1. Assuming you already have LND 0.14 (ideally 0.14.2/`master` branch)
 2. `cargo build`
 3. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
@@ -74,7 +74,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present another output will be added to send the amount to the internal wallet.
 This may be required in case the wallet is empty as in such case LND can not reserve sats for anchor commitments.
-However, to truly work, you need [another LND fix](https://github.com/lightningnetwork/lnd/pull/5539) (merge with master).
+However, to truly work, you need LND from `master` or 0.14.2 once it's released.
 
 ## License
 
