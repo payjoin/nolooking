@@ -96,20 +96,31 @@ struct Handler {
 }
 
 impl Handler {
-    async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
-        let version = client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
+    fn parse_lnd_version(version: String) -> Result<((u64, u64, u64), String), CheckError> {
         let mut iter = match version.find('-') {
             Some(pos) => &version[..pos],
             None => &version,
         }.split('.');
+
         let major = iter.next().expect("split returns non-empty iterator").parse::<u64>();
         let minor = iter.next().unwrap_or("0").parse::<u64>();
-        match (major, minor) {
-            (Ok(0), Ok(0..=13)) => return Err(CheckError::LNDTooOld(version)),
-            (Ok(0), Ok(14..=u64::MAX)) => (),
-            (Ok(1..=u64::MAX), Ok(_)) => (),
-            (Err(error), _) => return  Err(CheckError::VersionNumber { version, error, }),
-            (_, Err(error)) => return  Err(CheckError::VersionNumber { version, error, }),
+        let patch = iter.next().unwrap_or("0").parse::<u64>();
+
+        match (major, minor, patch) {
+            (Ok(major), Ok(minor), Ok(patch)) => Ok(((major, minor, patch), version)),
+            (Err(error), _, _) => Err(CheckError::VersionNumber { version, error, }),
+            (_, Err(error), _) => Err(CheckError::VersionNumber { version, error, }),
+            (_, _, Err(error)) => Err(CheckError::VersionNumber { version, error, }),
+        }
+    }
+
+    async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
+        let version = client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
+        let (parsed_version, version) = Self::parse_lnd_version(version)?;
+        if parsed_version < (0, 14, 0) {
+            return Err(CheckError::LNDTooOld(version));
+        } else if parsed_version < (0, 14, 2) {
+            eprintln!("WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible.");
         }
         Ok(Handler {
             client,
