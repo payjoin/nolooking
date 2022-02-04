@@ -52,7 +52,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 * **MOST LIKELY UNSAFE** does not implement required BIP78 checks
 * **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
-* To work with an *empty* LND wallet you need to use LND 0.14.2 or the `master` branch while it's unreleased.
+* To work with an *empty* LND wallet you need to use LND 0.14.2
 * Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
 * Unpolished UI
 * No way to inteligently manipulate the amount
@@ -64,7 +64,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Usage
 
 0. You need Rust version 1.48 or higher to compile this.
-1. Assuming you already have LND 0.14 (ideally 0.14.2/`master` branch)
+1. Assuming you already have LND 0.14, ideally 0.14.2
 2. `cargo build`
 3. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost).
@@ -74,7 +74,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present another output will be added to send the amount to the internal wallet.
 This may be required in case the wallet is empty as in such case LND can not reserve sats for anchor commitments.
-However, to truly work, you need LND from `master` or 0.14.2 once it's released.
+However, to truly work, you need LND  0.14.2.
 
 ## License
 
