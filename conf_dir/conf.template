@@ -1,0 +1,4 @@
+bind_port = 3000
+lnd_address = "tcp://localhost:10009"
+lnd_cert_path = "./tls.cert"
+lnd_macaroon_path = "./admin.macaroon"

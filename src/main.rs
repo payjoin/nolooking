@@ -1,13 +1,13 @@
-use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
-use bitcoin::{TxOut, Script};
-use std::convert::TryInto;
-use std::sync::{Arc, Mutex};
-use std::collections::HashMap;
-use std::fmt;
+use bitcoin::{Script, TxOut};
+use hyper::service::{make_service_fn, service_fn};
+use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use ln_types::P2PAddress;
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 #[macro_use]
 extern crate serde_derive;
@@ -16,7 +16,7 @@ extern crate configure_me;
 configure_me::include_config!();
 
 #[cfg(not(feature = "test_paths"))]
-const STATIC_DIR: &str = "/usr/share/loptos/static";
+const STATIC_DIR: &str = "static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
@@ -34,12 +34,10 @@ impl ScheduledChannel {
 
         let node = addr.parse().expect("invalid node address");
         let amount = amount.to_str().expect("invalid channel amount");
-        let amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi).expect("invalid channel amount");
-
-        ScheduledChannel {
-            node,
-            amount,
-        }
+        let amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi)
+            .expect("invalid channel amount");
+        print!("[DEBUG] {:#?} - {:#?}", node, amount);
+        ScheduledChannel { node, amount }
     }
 }
 
@@ -48,14 +46,24 @@ struct ScheduledPayJoin {
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     wallet_amount: bitcoin::Amount,
     channels: Vec<ScheduledChannel>,
+    // sats / byte
     fee_rate: u64,
 }
 
 impl ScheduledPayJoin {
     fn total_amount(&self) -> bitcoin::Amount {
-        let fees = calculate_fees(self.channels.len() as u64, self.fee_rate, self.wallet_amount != bitcoin::Amount::ZERO);
+        let fees = calculate_fees(
+            self.channels.len() as u64,
+            self.fee_rate,
+            self.wallet_amount != bitcoin::Amount::ZERO,
+        );
 
-        self.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add) + self.wallet_amount + fees
+        self.channels
+            .iter()
+            .map(|channel| channel.amount)
+            .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
+            + self.wallet_amount
+            + fees
     }
 
     async fn test_connections(&self, client: &mut tonic_lnd::Client) {
@@ -72,20 +80,27 @@ impl PayJoins {
     fn insert(&self, address: &Address, payjoin: ScheduledPayJoin) -> Result<(), ()> {
         use std::collections::hash_map::Entry;
 
-        match self.0.lock().expect("payjoins mutex poisoned").entry(address.script_pubkey()) {
+        match self
+            .0
+            .lock()
+            .expect("payjoins mutex poisoned")
+            .entry(address.script_pubkey())
+        {
             Entry::Vacant(place) => {
                 place.insert(payjoin);
                 Ok(())
-            },
+            }
             Entry::Occupied(_) => Err(()),
         }
     }
 
     fn find<'a>(&self, txouts: &'a mut [TxOut]) -> Option<(&'a mut TxOut, ScheduledPayJoin)> {
         let mut payjoins = self.0.lock().expect("payjoins mutex poisoned");
-        txouts
-            .iter_mut()
-            .find_map(|txout| payjoins.remove(&txout.script_pubkey).map(|payjoin| (txout, payjoin)))
+        txouts.iter_mut().find_map(|txout| {
+            payjoins
+                .remove(&txout.script_pubkey)
+                .map(|payjoin| (txout, payjoin))
+        })
     }
 }
 
@@ -100,40 +115,52 @@ impl Handler {
         let mut iter = match version.find('-') {
             Some(pos) => &version[..pos],
             None => &version,
-        }.split('.');
+        }
+        .split('.');
 
-        let major = iter.next().expect("split returns non-empty iterator").parse::<u64>();
+        let major = iter
+            .next()
+            .expect("split returns non-empty iterator")
+            .parse::<u64>();
         let minor = iter.next().unwrap_or("0").parse::<u64>();
         let patch = iter.next().unwrap_or("0").parse::<u64>();
 
         match (major, minor, patch) {
             (Ok(major), Ok(minor), Ok(patch)) => Ok(((major, minor, patch), version)),
-            (Err(error), _, _) => Err(CheckError::VersionNumber { version, error, }),
-            (_, Err(error), _) => Err(CheckError::VersionNumber { version, error, }),
-            (_, _, Err(error)) => Err(CheckError::VersionNumber { version, error, }),
+            (Err(error), _, _) => Err(CheckError::VersionNumber { version, error }),
+            (_, Err(error), _) => Err(CheckError::VersionNumber { version, error }),
+            (_, _, Err(error)) => Err(CheckError::VersionNumber { version, error }),
         }
     }
 
     async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
-        let version = client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
+        let version = client
+            .get_info(tonic_lnd::rpc::GetInfoRequest {})
+            .await?
+            .into_inner()
+            .version;
         let (parsed_version, version) = Self::parse_lnd_version(version)?;
         if parsed_version < (0, 14, 0) {
             return Err(CheckError::LNDTooOld(version));
         } else if parsed_version < (0, 14, 2) {
-            eprintln!("WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible.");
+            eprintln!(
+                "WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible."
+            );
         }
         Ok(Handler {
             client,
             payjoins: Default::default(),
         })
     }
-
 }
 
 #[derive(Debug)]
 enum CheckError {
     RequestFailed(tonic_lnd::Error),
-    VersionNumber { version: String, error: std::num::ParseIntError, },
+    VersionNumber {
+        version: String,
+        error: std::num::ParseIntError,
+    },
     LNDTooOld(String),
 }
 
@@ -141,8 +168,14 @@ impl fmt::Display for CheckError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
             CheckError::RequestFailed(_) => write!(f, "failed to get LND version"),
-            CheckError::VersionNumber { version, error: _, } => write!(f, "Unparsable LND version '{}'", version),
-            CheckError::LNDTooOld(version) => write!(f, "LND version {} is too old - it would cause GUARANTEED LOSS of sats!", version),
+            CheckError::VersionNumber { version, error: _ } => {
+                write!(f, "Unparsable LND version '{}'", version)
+            }
+            CheckError::LNDTooOld(version) => write!(
+                f,
+                "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
+                version
+            ),
         }
     }
 }
@@ -151,7 +184,7 @@ impl std::error::Error for CheckError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             CheckError::RequestFailed(error) => Some(error),
-            CheckError::VersionNumber { version: _, error, } => Some(error),
+            CheckError::VersionNumber { version: _, error } => Some(error),
             CheckError::LNDTooOld(_) => None,
         }
     }
@@ -162,7 +195,6 @@ impl From<tonic_lnd::Error> for CheckError {
         CheckError::RequestFailed(value)
     }
 }
-
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
     let pubkey = node.node_id.to_string();
@@ -177,14 +209,22 @@ async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
         timeout: 60,
     };
 
-    client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
-        if !error.message().starts_with("already connected to peer") {
-            panic!("failed to connect to peer {}: {:?}", node, error);
-        }
-    });
+    client
+        .connect_peer(connect_req)
+        .await
+        .map(drop)
+        .unwrap_or_else(|error| {
+            if !error.message().starts_with("already connected to peer") {
+                panic!("failed to connect to peer {}: {:?}", node, error);
+            }
+        });
 }
 
-fn calculate_fees(channel_count: u64, fee_rate: u64, has_additional_output: bool) -> bitcoin::Amount {
+fn calculate_fees(
+    channel_count: u64,
+    fee_rate: u64,
+    has_additional_output: bool,
+) -> bitcoin::Amount {
     let additional_vsize = if has_additional_output {
         channel_count * (8 + 1 + 1 + 32)
     } else {
@@ -196,7 +236,10 @@ fn calculate_fees(channel_count: u64, fee_rate: u64, has_additional_output: bool
 
 async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
     client
-        .new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new(), })
+        .new_address(tonic_lnd::rpc::NewAddressRequest {
+            r#type: 0,
+            account: String::new(),
+        })
         .await
         .expect("failed to get chain address")
         .into_inner()
@@ -207,27 +250,58 @@ async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (config, mut args) = Config::including_optional_config_files(std::iter::empty::<&str>()).unwrap_or_exit();
+    // let (config, mut args) =
+    //     Config::including_optional_config_files(std::iter::empty::<&str>()).unwrap_or_exit();
+    let (config, mut args) =
+        Config::including_optional_config_files(&["conf_dir/conf"]).unwrap_or_exit();
 
-    let client = tonic_lnd::connect(config.lnd_address, &config.lnd_cert_path, &config.lnd_macaroon_path)
+    let mut client = tonic_lnd::connect(
+        config.lnd_address,
+        &config.lnd_cert_path,
+        &config.lnd_macaroon_path,
+    )
+    .await
+    .expect("failed to connect");
+
+    println!("[DEBUG]: Connected to lnd");
+    let info = client
+        // All calls require at least empty parameter
+        .get_info(tonic_lnd::rpc::GetInfoRequest {})
         .await
-        .expect("failed to connect");
+        .expect("failed to get info ---- ");
 
+    // We only print it here, note that in real-life code you may want to call `.into_inner()` on
+    // the response to get the message.
+    println!("{:#?}", info);
     let mut handler = Handler::new(client).await?;
 
     if let Some(fee_rate) = args.next() {
-        let fee_rate = fee_rate.into_string().expect("fee rate is not UTF-8").parse::<u64>()?;
+        let fee_rate = fee_rate
+            .into_string()
+            .expect("fee rate is not UTF-8")
+            .parse::<u64>()?;
         let address = get_new_bech32_address(&mut handler.client).await;
+
+        println!("Address: {} ", address);
 
         let mut args = args.fuse();
         let mut scheduled_channels = Vec::with_capacity(args.size_hint().0 / 2);
         let mut wallet_amount = bitcoin::Amount::ZERO;
         while let Some(arg) = args.next() {
             match args.next() {
-                Some(channel_amount) => scheduled_channels.push(ScheduledChannel::from_args(arg, channel_amount)),
-                None => wallet_amount = bitcoin::Amount::from_str_in(arg.to_str().expect("wallet amount not UTF-8"), bitcoin::Denomination::Satoshi)?,
+                Some(channel_amount) => {
+                    scheduled_channels.push(ScheduledChannel::from_args(arg, channel_amount))
+                }
+                None => {
+                    wallet_amount = bitcoin::Amount::from_str_in(
+                        arg.to_str().expect("wallet amount not UTF-8"),
+                        bitcoin::Denomination::Satoshi,
+                    )?
+                }
             }
         }
+
+        println!("[DEBUG] Done scheduling payjoins");
 
         let scheduled_payjoin = ScheduledPayJoin {
             wallet_amount,
@@ -235,21 +309,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             fee_rate,
         };
 
-        scheduled_payjoin.test_connections(&mut handler.client).await;
+        scheduled_payjoin
+            .test_connections(&mut handler.client)
+            .await;
 
-        println!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, scheduled_payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin));
+        println!(
+            "bitcoin:{}?amount={}&pj=https://example.com/pj",
+            address,
+            scheduled_payjoin
+                .total_amount()
+                .to_string_in(bitcoin::Denomination::Bitcoin)
+        );
 
-        handler.payjoins.insert(&address, scheduled_payjoin).expect("New Handler is supposed to be empty");
+        handler
+            .payjoins
+            .insert(&address, scheduled_payjoin)
+            .expect("New Handler is supposed to be empty");
+    } else {
+        println!("[DEBUG] No more arguments provided, starting to listen to connections")
     }
-
     let addr = ([127, 0, 0, 1], config.bind_port).into();
 
     let service = make_service_fn(move |_| {
         let handler = handler.clone();
 
         async move {
-
-            Ok::<_, hyper::Error>(service_fn(move |request| handle_web_req(handler.clone(), request)))
+            Ok::<_, hyper::Error>(service_fn(move |request| {
+                handle_web_req(handler.clone(), request)
+            }))
         }
     });
 
@@ -262,21 +349,29 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
+async fn handle_web_req(
+    mut handler: Handler,
+    req: Request<Body>,
+) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
     use std::path::Path;
 
+    println!("[Incoming Request]: {} {}", req.method(), req.uri());
+
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/pj") => {
-            let index = std::fs::read(Path::new(STATIC_DIR).join("index.html")).expect("can't open index");
+            let index =
+                std::fs::read(Path::new(STATIC_DIR).join("index.html")).expect("can't open index");
             Ok(Response::new(Body::from(index)))
-        },
+        }
 
         (&Method::GET, path) if path.starts_with("/pj/static/") => {
             let directory_traversal_vulnerable_path = &path[("/pj/static/".len())..];
-            let file = std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path)).expect("can't open static file");
+            let file =
+                std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path))
+                    .expect("can't open static file");
             Ok(Response::new(Body::from(file)))
-        },
+        }
 
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
@@ -305,13 +400,30 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                 // clear signature
                 input.script_sig = bitcoin::blockdata::script::Script::new();
             }
-            let (our_output, scheduled_payjoin) = handler.payjoins.find(&mut psbt.global.unsigned_tx.output).expect("the transaction doesn't contain our output");
-            let total_channel_amount: bitcoin::Amount = scheduled_payjoin.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
-            let fees = calculate_fees(scheduled_payjoin.channels.len() as u64, scheduled_payjoin.fee_rate, scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO);
+            let (our_output, scheduled_payjoin) = handler
+                .payjoins
+                .find(&mut psbt.global.unsigned_tx.output)
+                .expect("the transaction doesn't contain our output");
+            let total_channel_amount: bitcoin::Amount = scheduled_payjoin
+                .channels
+                .iter()
+                .map(|channel| channel.amount)
+                .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
+            let fees = calculate_fees(
+                scheduled_payjoin.channels.len() as u64,
+                scheduled_payjoin.fee_rate,
+                scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO,
+            );
 
-            assert_eq!(our_output.value, (total_channel_amount + scheduled_payjoin.wallet_amount + fees).as_sat());
+            assert_eq!(
+                our_output.value,
+                (total_channel_amount + scheduled_payjoin.wallet_amount + fees).as_sat()
+            );
 
-            let chids = (0..scheduled_payjoin.channels.len()).into_iter().map(|_| rand::random::<[u8; 32]>()).collect::<Vec<_>>();
+            let chids = (0..scheduled_payjoin.channels.len())
+                .into_iter()
+                .map(|_| rand::random::<[u8; 32]>())
+                .collect::<Vec<_>>();
 
             // no collect() because of async
             let mut txouts = Vec::with_capacity(scheduled_payjoin.channels.len());
@@ -332,7 +444,11 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
 
                 let open_channel = tonic_lnd::rpc::OpenChannelRequest {
                     node_pubkey: channel.node.node_id.to_vec(),
-                    local_funding_amount: channel.amount.as_sat().try_into().expect("amount too large"),
+                    local_funding_amount: channel
+                        .amount
+                        .as_sat()
+                        .try_into()
+                        .expect("amount too large"),
                     push_sat: 0,
                     private: false,
                     min_htlc_msat: 0,
@@ -345,21 +461,30 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                     max_local_csv: 288,
                     ..Default::default()
                 };
-                let mut update_stream = lnd.open_channel(open_channel).await.expect("Failed to call open channel").into_inner();
-                while let Some(message) = update_stream.message().await.expect("failed to receive update") {
+                let mut update_stream = lnd
+                    .open_channel(open_channel)
+                    .await
+                    .expect("Failed to call open channel")
+                    .into_inner();
+                while let Some(message) = update_stream
+                    .message()
+                    .await
+                    .expect("failed to receive update")
+                {
                     assert_eq!(message.pending_chan_id, chid);
                     if let Some(update) = message.update {
                         use tonic_lnd::rpc::open_status_update::Update;
                         match update {
                             Update::PsbtFund(ready) => {
                                 let mut bytes = &*ready.psbt;
-                                let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
+                                let tx = PartiallySignedTransaction::consensus_decode(&mut bytes)
+                                    .unwrap();
                                 eprintln!("PSBT received from LND: {:#?}", tx);
                                 assert_eq!(tx.global.unsigned_tx.output.len(), 1);
 
                                 txouts.extend(tx.global.unsigned_tx.output);
                                 break;
-                            },
+                            }
                             // panic?
                             x => panic!("Unexpected update {:?}", x),
                         }
@@ -371,7 +496,10 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             let channel_output = txouts.next().expect("no channels");
 
             if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
-                assert_eq!(channel_output.value, scheduled_payjoin.channels[0].amount.as_sat());
+                assert_eq!(
+                    channel_output.value,
+                    scheduled_payjoin.channels[0].amount.as_sat()
+                );
                 *our_output = channel_output;
             } else {
                 our_output.value = scheduled_payjoin.wallet_amount.as_sat();
@@ -379,7 +507,8 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             }
 
             psbt.global.unsigned_tx.output.extend(txouts);
-            psbt.outputs.resize_with(psbt.global.unsigned_tx.output.len(), Default::default);
+            psbt.outputs
+                .resize_with(psbt.global.unsigned_tx.output.len(), Default::default);
 
             eprintln!("PSBT to be given to LND: {:#?}", psbt);
             let mut psbt_bytes = Vec::new();
@@ -393,35 +522,51 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                 };
 
                 let transition_msg = tonic_lnd::rpc::FundingTransitionMsg {
-                    trigger: Some(tonic_lnd::rpc::funding_transition_msg::Trigger::PsbtVerify(psbt_verify)),
+                    trigger: Some(tonic_lnd::rpc::funding_transition_msg::Trigger::PsbtVerify(
+                        psbt_verify,
+                    )),
                 };
 
-                lnd.funding_state_step(transition_msg).await.expect("failed to execute funding state step");
+                lnd.funding_state_step(transition_msg)
+                    .await
+                    .expect("failed to execute funding state step");
             }
 
             // Reset transaction state to be non-finalized
-            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx).expect("resetting tx failed");
+            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx)
+                .expect("resetting tx failed");
             let mut psbt_bytes = Vec::new();
             eprintln!("PSBT that will be returned: {:#?}", psbt);
             psbt.consensus_encode(&mut psbt_bytes).unwrap();
             let psbt_bytes = base64::encode(psbt_bytes);
 
+            println!("Returning 200");
             Ok(Response::new(Body::from(psbt_bytes)))
-        },
+        }
 
         (&Method::POST, "/pj/schedule") => {
             let bytes = hyper::body::to_bytes(req.into_body()).await?;
-            let request = serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
+            let request =
+                serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
             request.test_connections(&mut handler.client).await;
             let address = get_new_bech32_address(&mut handler.client).await;
             let total_amount = request.total_amount();
-            handler.payjoins.insert(&address, request).expect("address reuse");
+            handler
+                .payjoins
+                .insert(&address, request)
+                .expect("address reuse");
 
-            let uri = format!("bitcoin:{}?amount={}&pj=https://example.com/pj", address, total_amount.to_string_in(bitcoin::Denomination::Bitcoin));
+            let uri = format!(
+                "bitcoin:{}?amount={}&pj=https://example.com/pj",
+                address,
+                total_amount.to_string_in(bitcoin::Denomination::Bitcoin)
+            );
             let mut response = Response::new(Body::from(uri));
-            response.headers_mut().insert(hyper::header::CONTENT_TYPE, "text/plain".parse().unwrap());
+            response
+                .headers_mut()
+                .insert(hyper::header::CONTENT_TYPE, "text/plain".parse().unwrap());
             Ok(response)
-        },
+        }
 
         // Return the 404 Not Found for other routes.
         _ => {
