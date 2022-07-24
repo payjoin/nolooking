@@ -760,9 +760,9 @@ dependencies = [
 
 [[package]]
 name = "rustls-pemfile"
-version = "0.2.1"
+version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5eebeaeb360c87bfb72e84abdb3447159c0eaececf1bef2aecd65a8be949d1c9"
+checksum = "e7522c9de787ff061458fe9a829dc790a3f5b22dc571694fc5883f448b94d9a9"
 dependencies = [
  "base64",
 ]
@@ -1008,9 +1008,9 @@ dependencies = [
 
 [[package]]
 name = "tonic_lnd"
-version = "0.3.0"
+version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "e133e6e4c0162f45dea89ba7635abee93632ca7d08bdba29eefff2dc5e00aed7"
+checksum = "9c925762f1b3c9d9cdce9ae81edeb1bcc95457c881e9a7d57f2c2ad43e505f44"
 dependencies = [
  "hex",
  "prost 0.9.0",
