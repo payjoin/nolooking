@@ -50,16 +50,16 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 ## Limitations and future plans
 
-* **MOST LIKELY UNSAFE** does not implement required BIP78 checks
-* **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
-* To work with an *empty* LND wallet you need to use LND 0.14.2
-* Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
-* Unpolished UI
-* No way to inteligently manipulate the amount
-* No discount possible
-* Invalid request can kill whole server
-* `.unwraps()`s EVERYWHERE!
-* I swear I knew about a few more but can't remember right now :D
+- **MOST LIKELY UNSAFE** does not implement required BIP78 checks
+- **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
+- To work with an _empty_ LND wallet you need to use LND 0.14.2
+- Funds in LND or other wallet are not used, so it's not true PayJoin, just abuses the protocol to coordinate PSBT.
+- Unpolished UI
+- No way to inteligently manipulate the amount
+- No discount possible
+- Invalid request can kill whole server
+- `.unwraps()`s EVERYWHERE!
+- I swear I knew about a few more but can't remember right now :D
 
 ## Usage
 
@@ -72,9 +72,14 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 5. Copy BIP21 from command line output and paste it into one of the supported wallets
 6. Confirm the transaction and pray it works
 
+## Dev set up
+
+0. Copy `conf_dir/conf.template` to `conf_dir/conf` and replace values
+1. `cargo run`
+
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present another output will be added to send the amount to the internal wallet.
 This may be required in case the wallet is empty as in such case LND can not reserve sats for anchor commitments.
-However, to truly work, you need LND  0.14.2.
+However, to truly work, you need LND 0.14.2.
 
 ## License
 
