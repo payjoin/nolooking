@@ -6,6 +6,7 @@ use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use args::ArgError;
+use bip78::receiver::*;
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use bitcoin::{Script, TxOut};
@@ -266,6 +267,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub(crate) struct Headers(hyper::HeaderMap);
+impl bip78::receiver::Headers for Headers {
+    fn get_header(&self, key: &str) -> Option<&str> {
+        if let Some(value) = self.0.get(key) {
+            return value.to_str().ok();
+        }
+        None
+    }
+}
+
 async fn handle_web_req(
     mut handler: Handler,
     req: Request<Body>,
@@ -293,32 +304,41 @@ async fn handle_web_req(
             dbg!(req.uri().query());
 
             let mut lnd = handler.client;
-            let query = req
-                .uri()
-                .query()
-                .into_iter()
-                .flat_map(|query| query.split('&'))
-                .map(|kv| {
-                    let eq_pos = kv.find('=').unwrap();
-                    (&kv[..eq_pos], &kv[(eq_pos + 1)..])
-                })
-                .collect::<std::collections::HashMap<_, _>>();
 
-            if query.get("disableoutputsubstitution") == Some(&"1") {
+            let headers = Headers(req.headers().to_owned());
+            let query = {
+                let uri = req.uri();
+                if let Some(query) = uri.query() {
+                    Some(&query.to_owned());
+                }
+                None
+            };
+            let body = req.into_body();
+            let bytes = hyper::body::to_bytes(body).await?;
+            dbg!(&bytes); // this is correct by my accounts
+            let reader = &*bytes;
+            let proposal = UncheckedProposal::from_request(reader, query, headers).unwrap();
+            if proposal.is_output_substitution_disabled() {
                 panic!("Output substitution must be enabled");
             }
-            let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
-            let bytes = base64::decode(&base64_bytes).unwrap();
-            let mut reader = &*bytes;
-            let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
+
+            let proposal = proposal
+                .assume_interactive_receive_endpoint() // TODO Check
+                .assume_no_inputs_owned() // TODO Check
+                .assume_no_mixed_input_scripts() // This check is silly and could be ignored
+                .assume_no_inputs_seen_before(); // TODO
+
+            let mut psbt = proposal.psbt().clone();
             eprintln!("Received transaction: {:#?}", psbt);
-            for input in &mut psbt.global.unsigned_tx.input {
-                // clear signature
-                input.script_sig = bitcoin::blockdata::script::Script::new();
+            {
+                for input in &mut psbt.unsigned_tx.input {
+                    // clear signature
+                    input.script_sig = bitcoin::blockdata::script::Script::new();
+                }
             }
             let (our_output, scheduled_payjoin) = handler
                 .payjoins
-                .find(&mut psbt.global.unsigned_tx.output)
+                .find(&mut psbt.unsigned_tx.output)
                 .expect("the transaction doesn't contain our output");
             let total_channel_amount: bitcoin::Amount = scheduled_payjoin
                 .channels
@@ -392,9 +412,9 @@ async fn handle_web_req(
                                 let tx = PartiallySignedTransaction::consensus_decode(&mut bytes)
                                     .unwrap();
                                 eprintln!("PSBT received from LND: {:#?}", tx);
-                                assert_eq!(tx.global.unsigned_tx.output.len(), 1);
+                                assert_eq!(tx.unsigned_tx.output.len(), 1);
 
-                                txouts.extend(tx.global.unsigned_tx.output);
+                                txouts.extend(tx.unsigned_tx.output);
                                 break;
                             }
                             // panic?
@@ -412,11 +432,11 @@ async fn handle_web_req(
                 *our_output = channel_output;
             } else {
                 our_output.value = scheduled_payjoin.wallet_amount.as_sat();
-                psbt.global.unsigned_tx.output.push(channel_output)
+                psbt.unsigned_tx.output.push(channel_output)
             }
 
-            psbt.global.unsigned_tx.output.extend(txouts);
-            psbt.outputs.resize_with(psbt.global.unsigned_tx.output.len(), Default::default);
+            psbt.unsigned_tx.output.extend(txouts);
+            psbt.outputs.resize_with(psbt.unsigned_tx.output.len(), Default::default);
 
             eprintln!("PSBT to be given to LND: {:#?}", psbt);
             let mut psbt_bytes = Vec::new();
@@ -441,7 +461,7 @@ async fn handle_web_req(
             }
 
             // Reset transaction state to be non-finalized
-            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx)
+            let psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.unsigned_tx.clone())
                 .expect("resetting tx failed");
             let mut psbt_bytes = Vec::new();
             eprintln!("PSBT that will be returned: {:#?}", psbt);
