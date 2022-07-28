@@ -3,6 +3,7 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use bitcoin::{TxOut, Script};
+use bip78::receiver::*;
 use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 use std::collections::HashMap;
@@ -262,6 +263,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+pub(crate) struct Headers(hyper::HeaderMap);
+impl bip78::receiver::Headers for Headers {
+    fn get(&self, key: &str) -> Option<&str> {
+        if let Some(value) = self.0.get(key) {
+            return value.to_str().ok()
+        }
+        None
+    }
+}
+
 async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Response<Body>, hyper::Error> {
     use bitcoin::consensus::{Decodable, Encodable};
     use std::path::Path;
@@ -296,9 +307,19 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             if query.get("disableoutputsubstitution") == Some(&"1") {
                 panic!("Output substitution must be enabled");
             }
+
+            let headers = Headers(req.headers().to_owned());
+            let query =  {
+                let uri = req.uri();
+                if let Some(query) = uri.query() {
+                    Some(&query.to_owned());
+                }
+                None
+            };
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
-            let mut reader = &*bytes;
+            let reader = &*bytes;
+            let proposal = UncheckedProposal::from_request(reader, query, headers).unwrap();
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
             for input in &mut psbt.global.unsigned_tx.input {

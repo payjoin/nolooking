@@ -12,6 +12,8 @@ test_paths = []
 
 [dependencies]
 bitcoin = { version = "0.27.0", features = ["use-serde"] }
+bip78 = { path = "../payjoin/bip78", features = ["sender", "receiver" ]}
+url = "2.2.2"
 hyper = "0.14.9"
 tonic_lnd = "0.4.0"
 tokio = { version = "1.7.1", features = ["rt-multi-thread"] }
