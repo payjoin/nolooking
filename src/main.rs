@@ -17,7 +17,7 @@ extern crate configure_me;
 configure_me::include_config!();
 
 #[cfg(not(feature = "test_paths"))]
-const STATIC_DIR: &str = "/usr/share/loptos/static";
+const STATIC_DIR: &str = "./static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
@@ -208,7 +208,7 @@ async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (config, mut args) = Config::including_optional_config_files(std::iter::empty::<&str>()).unwrap_or_exit();
+    let (config, mut args) = Config::including_optional_config_files(&["/Users/dan/f/chaincase/loptos/LOPTOS.conf"]).unwrap_or_exit();
 
     let client = tonic_lnd::connect(config.lnd_address, &config.lnd_cert_path, &config.lnd_macaroon_path)
         .await
@@ -265,7 +265,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) struct Headers(hyper::HeaderMap);
 impl bip78::receiver::Headers for Headers {
-    fn get(&self, key: &str) -> Option<&str> {
+    fn get_header(&self, key: &str) -> Option<&str> {
         if let Some(value) = self.0.get(key) {
             return value.to_str().ok()
         }
@@ -293,20 +293,6 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             dbg!(req.uri().query());
 
             let mut lnd = handler.client;
-            let query = req
-                .uri()
-                .query()
-                .into_iter()
-                .flat_map(|query| query.split('&'))
-                .map(|kv| {
-                    let eq_pos = kv.find('=').unwrap();
-                    (&kv[..eq_pos], &kv[(eq_pos + 1)..])
-                })
-                .collect::<std::collections::HashMap<_, _>>();
-
-            if query.get("disableoutputsubstitution") == Some(&"1") {
-                panic!("Output substitution must be enabled");
-            }
 
             let headers = Headers(req.headers().to_owned());
             let query =  {
@@ -318,10 +304,20 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             };
             let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
             let bytes = base64::decode(&base64_bytes).unwrap();
-            let reader = &*bytes;
+            let mut reader = &*bytes;
             let proposal = UncheckedProposal::from_request(reader, query, headers).unwrap();
+            if proposal.is_output_substitution_disabled() {
+                panic!("Output substitution must be enabled");
+            }
+
             let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
             eprintln!("Received transaction: {:#?}", psbt);
+
+            let proposal = proposal.assume_interactive_receive_endpoint();
+            let proposal = proposal.assume_no_inputs_owned(); // TODO
+            let proposal = proposal.assume_no_mixed_input_scripts(); // IGNORE THIS SILLY CHECK
+            let proposal = proposal.assume_no_inputs_seen_before(); // TODO
+
             for input in &mut psbt.global.unsigned_tx.input {
                 // clear signature
                 input.script_sig = bitcoin::blockdata::script::Script::new();
