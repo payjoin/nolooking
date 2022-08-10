@@ -302,27 +302,29 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                 }
                 None
             };
-            let base64_bytes = hyper::body::to_bytes(req.into_body()).await?;
-            let bytes = base64::decode(&base64_bytes).unwrap();
+            let body = req.into_body();
+            let bytes = hyper::body::to_bytes(body).await?;
+            dbg!(&bytes); // this is correct by my accounts
             let mut reader = &*bytes;
             let proposal = UncheckedProposal::from_request(reader, query, headers).unwrap();
             if proposal.is_output_substitution_disabled() {
                 panic!("Output substitution must be enabled");
             }
 
-            let mut psbt = PartiallySignedTransaction::consensus_decode(&mut reader).unwrap();
-            eprintln!("Received transaction: {:#?}", psbt);
-
             let proposal = proposal.assume_interactive_receive_endpoint();
             let proposal = proposal.assume_no_inputs_owned(); // TODO
             let proposal = proposal.assume_no_mixed_input_scripts(); // IGNORE THIS SILLY CHECK
             let proposal = proposal.assume_no_inputs_seen_before(); // TODO
-
-            for input in &mut psbt.global.unsigned_tx.input {
-                // clear signature
-                input.script_sig = bitcoin::blockdata::script::Script::new();
+            
+            let mut psbt = proposal.psbt().clone();
+            eprintln!("Received transaction: {:#?}", psbt);
+            {
+                for input in &mut psbt.unsigned_tx.input {
+                    // clear signature
+                    input.script_sig = bitcoin::blockdata::script::Script::new();
+                }
             }
-            let (our_output, scheduled_payjoin) = handler.payjoins.find(&mut psbt.global.unsigned_tx.output).expect("the transaction doesn't contain our output");
+            let (our_output, scheduled_payjoin) = handler.payjoins.find(&mut psbt.unsigned_tx.output).expect("the transaction doesn't contain our output");
             let total_channel_amount: bitcoin::Amount = scheduled_payjoin.channels.iter().map(|channel| channel.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add);
             let fees = calculate_fees(scheduled_payjoin.channels.len() as u64, scheduled_payjoin.fee_rate, scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO);
 
@@ -372,9 +374,9 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                                 let mut bytes = &*ready.psbt;
                                 let tx = PartiallySignedTransaction::consensus_decode(&mut bytes).unwrap();
                                 eprintln!("PSBT received from LND: {:#?}", tx);
-                                assert_eq!(tx.global.unsigned_tx.output.len(), 1);
+                                assert_eq!(tx.unsigned_tx.output.len(), 1);
 
-                                txouts.extend(tx.global.unsigned_tx.output);
+                                txouts.extend(tx.unsigned_tx.output);
                                 break;
                             },
                             // panic?
@@ -392,11 +394,11 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
                 *our_output = channel_output;
             } else {
                 our_output.value = scheduled_payjoin.wallet_amount.as_sat();
-                psbt.global.unsigned_tx.output.push(channel_output)
+                psbt.unsigned_tx.output.push(channel_output)
             }
 
-            psbt.global.unsigned_tx.output.extend(txouts);
-            psbt.outputs.resize_with(psbt.global.unsigned_tx.output.len(), Default::default);
+            psbt.unsigned_tx.output.extend(txouts);
+            psbt.outputs.resize_with(psbt.unsigned_tx.output.len(), Default::default);
 
             eprintln!("PSBT to be given to LND: {:#?}", psbt);
             let mut psbt_bytes = Vec::new();
@@ -417,7 +419,7 @@ async fn handle_web_req(mut handler: Handler, req: Request<Body>) -> Result<Resp
             }
 
             // Reset transaction state to be non-finalized
-            psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.global.unsigned_tx).expect("resetting tx failed");
+            let psbt = PartiallySignedTransaction::from_unsigned_tx(psbt.unsigned_tx.clone()).expect("resetting tx failed");
             let mut psbt_bytes = Vec::new();
             eprintln!("PSBT that will be returned: {:#?}", psbt);
             psbt.consensus_encode(&mut psbt_bytes).unwrap();
