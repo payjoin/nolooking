@@ -1,13 +1,18 @@
+mod args;
+
+use args::ArgError;
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use bitcoin::{Script, TxOut};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use ln_types::P2PAddress;
-use std::collections::HashMap;
+use std::collections::{HashMap};
 use std::convert::TryInto;
 use std::fmt;
 use std::sync::{Arc, Mutex};
+
+use crate::args::parse_args;
 
 #[macro_use]
 extern crate serde_derive;
@@ -29,15 +34,13 @@ struct ScheduledChannel {
 }
 
 impl ScheduledChannel {
-    fn from_args(addr: std::ffi::OsString, amount: std::ffi::OsString) -> Self {
-        use configure_me::parse_arg::Arg;
+    fn from_args(addr: &str, amount: &str) -> Result<Self, ArgError> {
+        let node = addr.parse::<P2PAddress>().map_err(ArgError::InvalidNodeAddress)?;
 
-        let node = addr.parse().expect("invalid node address");
-        let amount = amount.to_str().expect("invalid channel amount");
-        let amount = bitcoin::Amount::from_str_in(&amount, bitcoin::Denomination::Satoshi)
-            .expect("invalid channel amount");
+        let amount = bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi)
+            .map_err(ArgError::InvalidBitcoinAmount)?;
 
-        ScheduledChannel { node, amount }
+        Ok(Self { node, amount })
     }
 }
 
@@ -218,8 +221,10 @@ async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (config, mut args) =
+    let (config, args) =
         Config::including_optional_config_files(std::iter::empty::<&str>()).unwrap_or_exit();
+
+    let scheduled_pj = parse_args(args).expect("failed to parse remaining arguments");
 
     let client =
         tonic_lnd::connect(config.lnd_address, &config.lnd_cert_path, &config.lnd_macaroon_path)
@@ -228,42 +233,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let mut handler = Handler::new(client).await?;
 
-    if let Some(fee_rate) = args.next() {
-        let fee_rate = fee_rate.into_string().expect("fee rate is not UTF-8").parse::<u64>()?;
+    if let Some(payjoin) = scheduled_pj {
+        payjoin.test_connections(&mut handler.client).await;
         let address = get_new_bech32_address(&mut handler.client).await;
-
-        let mut args = args.fuse();
-        let mut scheduled_channels = Vec::with_capacity(args.size_hint().0 / 2);
-        let mut wallet_amount = bitcoin::Amount::ZERO;
-        while let Some(arg) = args.next() {
-            match args.next() {
-                Some(channel_amount) => {
-                    scheduled_channels.push(ScheduledChannel::from_args(arg, channel_amount))
-                }
-                None => {
-                    wallet_amount = bitcoin::Amount::from_str_in(
-                        arg.to_str().expect("wallet amount not UTF-8"),
-                        bitcoin::Denomination::Satoshi,
-                    )?
-                }
-            }
-        }
-
-        let scheduled_payjoin =
-            ScheduledPayJoin { wallet_amount, channels: scheduled_channels, fee_rate };
-
-        scheduled_payjoin.test_connections(&mut handler.client).await;
 
         println!(
             "bitcoin:{}?amount={}&pj=https://example.com/pj",
             address,
-            scheduled_payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin)
+            payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin)
         );
 
-        handler
-            .payjoins
-            .insert(&address, scheduled_payjoin)
-            .expect("New Handler is supposed to be empty");
+        handler.payjoins.insert(&address, payjoin).expect("new handler should be empty");
     }
 
     let addr = ([127, 0, 0, 1], config.bind_port).into();
