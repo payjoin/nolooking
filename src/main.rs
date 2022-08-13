@@ -182,7 +182,7 @@ impl From<tonic_lnd::Error> for CheckError {
 async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
     let pubkey = node.node_id.to_string();
     let peer_addr =
-        tonic_lnd::rpc::LightningAddress { pubkey: pubkey, host: node.as_host_port().to_string() };
+        tonic_lnd::rpc::LightningAddress { pubkey, host: node.as_host_port().to_string() };
 
     let connect_req =
         tonic_lnd::rpc::ConnectPeerRequest { addr: Some(peer_addr), perm: true, timeout: 60 };
@@ -269,12 +269,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 pub(crate) struct Headers(hyper::HeaderMap);
 impl bip78::receiver::Headers for Headers {
-    fn get_header(&self, key: &str) -> Option<&str> {
-        if let Some(value) = self.0.get(key) {
-            return value.to_str().ok();
-        }
-        None
-    }
+    fn get_header(&self, key: &str) -> Option<&str> { self.0.get(key)?.to_str().ok() }
 }
 
 async fn handle_web_req(
@@ -305,68 +300,78 @@ async fn handle_web_req(
 
             let mut lnd = handler.client;
 
-            let headers = Headers(req.headers().to_owned());
-            let query = {
-                let uri = req.uri();
-                if let Some(query) = uri.query() {
-                    Some(&query.to_owned());
-                }
-                None
-            };
-            let body = req.into_body();
-            let bytes = hyper::body::to_bytes(body).await?;
-            dbg!(&bytes); // this is correct by my accounts
-            let reader = &*bytes;
-            let proposal = UncheckedProposal::from_request(reader, query, headers).unwrap();
+            // extract original PSBT from HTTP request
+            // TODO: `UncheckedProposal` is not really the proposal, but the original PSBT? Is the naming wrong?
+            // TODO: Unneeded and/or undocumented traits in bip-78 library? (`Proposal`, `Headers`)
+            // TODO: We should really save the original PSBT just in case the sender does not sign
+            //  and broadcast the proposed PSBT, or some other error occurs
+            let headers = Headers(req.headers().clone());
+            let query = req.uri().query().map(ToString::to_string);
+            let body_bytes = dbg!(hyper::body::to_bytes(req.into_body()).await?);
+            let proposal = UncheckedProposal::from_request(&*body_bytes, query.as_deref(), headers)
+                .expect("received invalid proposal - TODO: handle this error properly");
             if proposal.is_output_substitution_disabled() {
-                panic!("Output substitution must be enabled");
+                panic!("Output substitution must be enabled"); // TODO: Proper checks for `pjos`
             }
-
             let proposal = proposal
                 .assume_interactive_receive_endpoint() // TODO Check
                 .assume_no_inputs_owned() // TODO Check
                 .assume_no_mixed_input_scripts() // This check is silly and could be ignored
                 .assume_no_inputs_seen_before(); // TODO
 
+            // `psbt` is going to ACTUALLY be the proposal PSBT
             let mut psbt = proposal.psbt().clone();
-            eprintln!("Received transaction: {:#?}", psbt);
-            {
-                for input in &mut psbt.unsigned_tx.input {
-                    // clear signature
-                    input.script_sig = bitcoin::blockdata::script::Script::new();
-                }
-            }
+            eprintln!("Received transaction: {:#?}", psbt); // but not yet
+            psbt.unsigned_tx
+                .input
+                .iter_mut()
+                .for_each(|txin| txin.script_sig = bitcoin::Script::new());
+
+            // find our output
+            // TODO: Would it be possible that the user sends to multiple outputs that we own?
             let (our_output, scheduled_payjoin) = handler
                 .payjoins
                 .find(&mut psbt.unsigned_tx.output)
                 .expect("the transaction doesn't contain our output");
-            let total_channel_amount: bitcoin::Amount = scheduled_payjoin
+
+            // TODO: make this a member fn of `ScheduledPayJoin`
+            // TODO: make sure it is impossible to create a BIP21pj linked to `ScheduledPayJoin`
+            //  with a "total channel amount" larger than requested + fee
+            let total_channel_amount = scheduled_payjoin
                 .channels
                 .iter()
                 .map(|channel| channel.amount)
                 .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
+
+            // TODO: make this a member fn of `ScheduledPayJoin`
             let fees = calculate_fees(
                 scheduled_payjoin.channels.len() as u64,
                 scheduled_payjoin.fee_rate,
                 scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO,
             );
 
+            // TODO: not great
             assert_eq!(
                 our_output.value,
                 (total_channel_amount + scheduled_payjoin.wallet_amount + fees).as_sat()
             );
 
-            let chids = (0..scheduled_payjoin.channels.len())
+            let chan_ids = (0..scheduled_payjoin.channels.len())
                 .into_iter()
                 .map(|_| rand::random::<[u8; 32]>())
                 .collect::<Vec<_>>();
 
+            // these are channel-open txouts
             // no collect() because of async
             let mut txouts = Vec::with_capacity(scheduled_payjoin.channels.len());
 
-            for (channel, chid) in scheduled_payjoin.channels.iter().zip(&chids) {
+            // TODO: Creating `OpenChannelRequest` should be one thing, and async calls another
+            // TODO: Instead of interfacing with `tonic_lnd` directly, consider having a trait
+            //      so this can be extended in the future
+            // TODO: What if channel open fails or takes too long?
+            for (channel, chan_id) in scheduled_payjoin.channels.iter().zip(&chan_ids) {
                 let psbt_shim = tonic_lnd::rpc::PsbtShim {
-                    pending_chan_id: Vec::from(chid as &[_]),
+                    pending_chan_id: Vec::from(chan_id as &[_]),
                     base_psbt: Vec::new(),
                     no_publish: true,
                 };
@@ -403,7 +408,7 @@ async fn handle_web_req(
                 while let Some(message) =
                     update_stream.message().await.expect("failed to receive update")
                 {
-                    assert_eq!(message.pending_chan_id, chid);
+                    assert_eq!(message.pending_chan_id, chan_id);
                     if let Some(update) = message.update {
                         use tonic_lnd::rpc::open_status_update::Update;
                         match update {
@@ -442,7 +447,7 @@ async fn handle_web_req(
             let mut psbt_bytes = Vec::new();
             psbt.consensus_encode(&mut psbt_bytes).unwrap();
 
-            for chid in &chids {
+            for chid in &chan_ids {
                 let psbt_verify = tonic_lnd::rpc::FundingPsbtVerify {
                     pending_chan_id: Vec::from(chid as &[_]),
                     funded_psbt: psbt_bytes.clone(),
