@@ -1,5 +1,10 @@
 mod args;
 
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt;
+use std::sync::{Arc, Mutex};
+
 use args::ArgError;
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
@@ -7,10 +12,6 @@ use bitcoin::{Script, TxOut};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use ln_types::P2PAddress;
-use std::collections::{HashMap};
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::{Arc, Mutex};
 
 use crate::args::parse_args;
 
@@ -174,9 +175,7 @@ impl std::error::Error for CheckError {
 }
 
 impl From<tonic_lnd::Error> for CheckError {
-    fn from(value: tonic_lnd::Error) -> Self {
-        CheckError::RequestFailed(value)
-    }
+    fn from(value: tonic_lnd::Error) -> Self { CheckError::RequestFailed(value) }
 }
 
 async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
@@ -271,8 +270,9 @@ async fn handle_web_req(
     mut handler: Handler,
     req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
-    use bitcoin::consensus::{Decodable, Encodable};
     use std::path::Path;
+
+    use bitcoin::consensus::{Decodable, Encodable};
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/pj") => {
