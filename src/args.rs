@@ -2,7 +2,8 @@ use std::ffi::OsString;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::{ScheduledChannel, ScheduledPayJoin};
+use crate::scheduler::ScheduledChannel;
+use crate::ScheduledPayJoin;
 
 /// CLI argument errors.
 #[derive(Debug)]
@@ -70,5 +71,5 @@ where
         }
     };
 
-    Ok(Some(ScheduledPayJoin { wallet_amount, channels, fee_rate }))
+    Ok(Some(ScheduledPayJoin::new(wallet_amount, channels, fee_rate)))
 }
