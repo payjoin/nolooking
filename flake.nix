@@ -19,7 +19,7 @@
       in {
         packages = {
           # For `nix build` & `nix run`:
-          default= naersk'.buildPackage {
+          default = naersk'.buildPackage {
             src = ./.;
           };
 
@@ -32,6 +32,19 @@
                   darwin.apple_sdk.frameworks.Security pkgconfig openssl
                 ]
               );
+          };
+
+          docker = let
+            loin = self.packages.${system}.default;
+          in pkgs.dockerTools.buildLayeredImage {
+            name = loin.pname;
+            tag = loin.version;
+            contents = [ loin ];
+
+            config = {
+              Cmd = [ "cargo run" ];
+              WorkingDir = "/";
+            }
           };
         };
       }
