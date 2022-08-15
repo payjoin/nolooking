@@ -2,13 +2,13 @@
   description = "Build L[ightning Payj]oin and its Development Environment";
 
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
+    utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
-  outputs = { self, flake-utils, naersk, nixpkgs }:
-    flake-utils.lib.eachDefaultSystem (system:
+  outputs = { self, utils, naersk, nixpkgs }:
+    utils.lib.eachDefaultSystem (system:
       let
         pkgs = (import nixpkgs) {
           inherit system;
@@ -16,15 +16,23 @@
 
         naersk' = pkgs.callPackage naersk {};
 
-      in rec {
-        # For `nix build` & `nix run`:
-        defaultPackage = naersk'.buildPackage {
-          src = ./.;
-        };
+      in {
+        packages = {
+          # For `nix build` & `nix run`:
+          default= naersk'.buildPackage {
+            src = ./.;
+          };
 
-        # For `nix develop`:
-        devShell = pkgs.mkShell {
-          nativeBuildInputs = with pkgs; [ rustc cargo ];
+          # For `nix develop`:
+          devShells.default = pkgs.mkShell {
+            nativeBuildInputs = with pkgs; [ rustc cargo ] ++ (
+                lib.optional stdenv.isDarwin [
+                  libiconv
+                  # For `tonic_lnd`
+                  darwin.apple_sdk.frameworks.Security pkgconfig openssl
+                ]
+              );
+          };
         };
       }
     );

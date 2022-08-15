@@ -58,6 +58,13 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 * `.unwraps()`s EVERYWHERE!
 * I swear I knew about a few more but can't remember right now :D
 
+## Nix Build
+
+You need to have [Nix](https://nixos.org/download.html). That's it.
+
+0. `nix build` to pull all dependencies and build the crate.
+1. `nix run` to run the debug target with no features or `nix develop` for a shell with tooling already installed.
+
 ## Usage
 
 0. You need Rust version 1.48 or higher to compile this.
