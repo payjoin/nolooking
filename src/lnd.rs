@@ -67,12 +67,12 @@ impl LndClient {
             .get_info(tonic_lnd::rpc::GetInfoRequest {})
             .await
             .map_err(LndError::VersionRequestFailed)?;
-        let version = &response.get_ref().version;
-        let (parsed_version, version) = Self::parse_lnd_version(version.clone())?;
+        let version_str = &response.get_ref().version;
+        let version = Self::parse_lnd_version(version_str)?;
 
-        if parsed_version < (0, 14, 0) {
-            return Err(LndError::LNDTooOld(version));
-        } else if parsed_version < (0, 14, 2) {
+        if version < (0, 14, 0) {
+            return Err(LndError::LNDTooOld(version_str.clone()));
+        } else if version < (0, 14, 2) {
             eprintln!(
                 "WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible."
             );
@@ -81,23 +81,22 @@ impl LndClient {
         Ok(Self(Arc::new(AsyncMutex::new(client))))
     }
 
-    fn parse_lnd_version(version: String) -> Result<((u64, u64, u64), String), LndError> {
-        let mut iter = match version.find('-') {
-            Some(pos) => &version[..pos],
-            None => &version,
-        }
-        .split('.');
+    fn parse_lnd_version(version_str: &str) -> Result<(u64, u64, u64), LndError> {
+        let trim_from = version_str.find('-').unwrap_or(version_str.len());
+        let mut iter =
+            version_str.get(..trim_from).expect("trim_from should always succeed").split('.');
 
-        let major = iter.next().expect("split returns non-empty iterator").parse::<u64>();
-        let minor = iter.next().unwrap_or("0").parse::<u64>();
-        let patch = iter.next().unwrap_or("0").parse::<u64>();
+        let mut parse_next = || {
+            iter.next().map(|v| v.parse::<u64>()).transpose().map_err(|e| {
+                LndError::ParseVersionFailed { version: version_str.to_string(), error: e }
+            })
+        };
 
-        match (major, minor, patch) {
-            (Ok(major), Ok(minor), Ok(patch)) => Ok(((major, minor, patch), version)),
-            (Err(error), _, _) => Err(LndError::ParseVersionFailed { version, error }),
-            (_, Err(error), _) => Err(LndError::ParseVersionFailed { version, error }),
-            (_, _, Err(error)) => Err(LndError::ParseVersionFailed { version, error }),
-        }
+        let major = parse_next()?.expect("split returned empty iterator");
+        let minor = parse_next()?.unwrap_or(0);
+        let patch = parse_next()?.unwrap_or(0);
+
+        Ok((major, minor, patch))
     }
 
     /// Ensures that we are connected to the node of address.
