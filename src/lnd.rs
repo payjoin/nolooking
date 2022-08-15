@@ -60,7 +60,7 @@ impl LndClient {
 
         let mut client = self.0.lock().await;
         match client.connect_peer(connect_req).await {
-            Err(err) if !err.message().starts_with("already connected to peer") => Ok(()),
+            Err(err) if err.message().starts_with("already connected to peer") => Ok(()),
             result => {
                 result?;
                 Ok(())

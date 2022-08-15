@@ -35,10 +35,12 @@ async fn handle_request(
     req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
-        (&Method::GET, "/pj/index.html") => match opts.serve_static {
-            true => handle_index_html().await,
-            false => handle_404().await,
-        },
+        (&Method::GET, _) =>
+            if req.uri().path().starts_with("/pj") && opts.serve_static {
+                handle_index_html().await
+            } else {
+                handle_404().await
+            },
         (&Method::POST, "/pj") => handle_pj(sched, req).await,
         (&Method::POST, "/pj/schedule") => handle_pj_schedule(sched, opts, req).await,
         _ => handle_404().await,
@@ -89,7 +91,7 @@ async fn handle_pj_schedule(
     let total_amount = pj.total_amount();
 
     let uri = format!(
-        "bitcoin:{}?amount={}&pj=http://{}/pj",
+        "bitcoin:{}?amount={}&pj=https://{}/pj",
         bitcoin_addr,
         total_amount.to_string_in(bitcoin::Denomination::Bitcoin),
         opts.bind_addr,

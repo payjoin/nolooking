@@ -34,7 +34,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         // * Optional cli flag or ENV for pj address (in the case of port forwarding), otherwise
         //      we should determine the bip21 string using `api::ServeOptions`
         println!(
-            "bitcoin:{}?amount={}&pj=http://127.0.0.1:{}/pj",
+            "bitcoin:{}?amount={}&pj=https://127.0.0.1:{}/pj",
             bitcoin_addr,
             payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin),
             config.bind_port,
