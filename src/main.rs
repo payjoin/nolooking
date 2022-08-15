@@ -75,7 +75,10 @@ impl ScheduledPayJoin {
     /// part of this [ScheduledPayJoin].
     async fn test_connections(&self, client: &LndClient) {
         for channel in &self.channels {
-            client.ensure_connected(channel.node.clone()).await.expect("connection should be successful");
+            client
+                .ensure_connected(channel.node.clone())
+                .await
+                .expect("connection should be successful");
         }
     }
 }
@@ -145,7 +148,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(payjoin) = scheduled_pj {
         payjoin.test_connections(&mut handler.client).await;
-        let address = handler.client.get_new_bech32_address().await;
+        let address = handler.client.get_new_bech32_address().await?;
 
         println!(
             "bitcoin:{}?amount={}&pj=https://example.com/pj",
@@ -188,7 +191,7 @@ async fn handle_web_req(
 ) -> Result<Response<Body>, hyper::Error> {
     use std::path::Path;
 
-    use bitcoin::consensus::{Encodable};
+    use bitcoin::consensus::Encodable;
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/pj") => {
@@ -292,7 +295,9 @@ async fn handle_web_req(
 
                 // TODO wrap lnd in mutex. A mutable reference prevents the benefits from an async call in our context
                 //    because we only have 1 client.
-                lnd.ensure_connected(channel.node.clone()).await.expect("connection should be successful");
+                lnd.ensure_connected(channel.node.clone())
+                    .await
+                    .expect("connection should be successful");
 
                 let open_channel = tonic_lnd::rpc::OpenChannelRequest {
                     node_pubkey: channel.node.node_id.to_vec(),
@@ -373,7 +378,11 @@ async fn handle_web_req(
             let request =
                 serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
             request.test_connections(&handler.client).await;
-            let address = handler.client.get_new_bech32_address().await;
+            let address = handler
+                .client
+                .get_new_bech32_address()
+                .await
+                .expect("lnd returned a bech32 address");
             let total_amount = request.total_amount();
             handler.payjoins.insert(&address, request).expect("address reuse");
 
