@@ -9,20 +9,26 @@ use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::rpc::{FundingTransitionMsg, OpenChannelRequest, OpenStatusUpdate};
 
 #[derive(Debug)]
-pub enum CheckError {
-    RequestFailed(tonic_lnd::Error),
-    VersionNumber { version: String, error: std::num::ParseIntError },
+pub enum LndError {
+    Generic(tonic_lnd::Error),
+    ConnectError(tonic_lnd::ConnectError),
+    ParseBitcoinAddressFailed(bitcoin::util::address::Error),
+    VersionRequestFailed(tonic_lnd::Error),
+    ParseVersionFailed { version: String, error: std::num::ParseIntError },
     LNDTooOld(String),
 }
 
-impl fmt::Display for CheckError {
+impl fmt::Display for LndError {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self {
-            CheckError::RequestFailed(_) => write!(f, "failed to get LND version"),
-            CheckError::VersionNumber { version, error: _ } => {
+            LndError::Generic(error) => error.fmt(f),
+            LndError::ConnectError(error) => error.fmt(f),
+            LndError::ParseBitcoinAddressFailed(err) => err.fmt(f),
+            LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
+            LndError::ParseVersionFailed { version, error: _ } => {
                 write!(f, "Unparsable LND version '{}'", version)
             }
-            CheckError::LNDTooOld(version) => write!(
+            LndError::LNDTooOld(version) => write!(
                 f,
                 "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
                 version
@@ -31,31 +37,41 @@ impl fmt::Display for CheckError {
     }
 }
 
-impl std::error::Error for CheckError {
+impl std::error::Error for LndError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
-            CheckError::RequestFailed(error) => Some(error),
-            CheckError::VersionNumber { version: _, error } => Some(error),
-            CheckError::LNDTooOld(_) => None,
+            LndError::Generic(error) => Some(error),
+            LndError::ConnectError(error) => Some(error),
+            LndError::ParseBitcoinAddressFailed(error) => Some(error),
+            LndError::VersionRequestFailed(error) => Some(error),
+            LndError::ParseVersionFailed { version: _, error } => Some(error),
+            LndError::LNDTooOld(_) => None,
         }
     }
 }
 
-impl From<tonic_lnd::Error> for CheckError {
-    fn from(value: tonic_lnd::Error) -> Self { CheckError::RequestFailed(value) }
+impl From<tonic_lnd::Error> for LndError {
+    fn from(value: tonic_lnd::Error) -> Self { LndError::Generic(value) }
+}
+
+impl From<tonic_lnd::ConnectError> for LndError {
+    fn from(value: tonic_lnd::ConnectError) -> Self { LndError::ConnectError(value) }
 }
 
 #[derive(Clone)]
 pub struct LndClient(Arc<AsyncMutex<tonic_lnd::Client>>);
 
 impl LndClient {
-    pub async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
-        let version =
-            client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
-        let (parsed_version, version) = Self::parse_lnd_version(version)?;
+    pub async fn new(mut client: tonic_lnd::Client) -> Result<Self, LndError> {
+        let response = client
+            .get_info(tonic_lnd::rpc::GetInfoRequest {})
+            .await
+            .map_err(LndError::VersionRequestFailed)?;
+        let version = &response.get_ref().version;
+        let (parsed_version, version) = Self::parse_lnd_version(version.clone())?;
 
         if parsed_version < (0, 14, 0) {
-            return Err(CheckError::LNDTooOld(version));
+            return Err(LndError::LNDTooOld(version));
         } else if parsed_version < (0, 14, 2) {
             eprintln!(
                 "WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible."
@@ -65,7 +81,7 @@ impl LndClient {
         Ok(Self(Arc::new(AsyncMutex::new(client))))
     }
 
-    fn parse_lnd_version(version: String) -> Result<((u64, u64, u64), String), CheckError> {
+    fn parse_lnd_version(version: String) -> Result<((u64, u64, u64), String), LndError> {
         let mut iter = match version.find('-') {
             Some(pos) => &version[..pos],
             None => &version,
@@ -78,14 +94,14 @@ impl LndClient {
 
         match (major, minor, patch) {
             (Ok(major), Ok(minor), Ok(patch)) => Ok(((major, minor, patch), version)),
-            (Err(error), _, _) => Err(CheckError::VersionNumber { version, error }),
-            (_, Err(error), _) => Err(CheckError::VersionNumber { version, error }),
-            (_, _, Err(error)) => Err(CheckError::VersionNumber { version, error }),
+            (Err(error), _, _) => Err(LndError::ParseVersionFailed { version, error }),
+            (_, Err(error), _) => Err(LndError::ParseVersionFailed { version, error }),
+            (_, _, Err(error)) => Err(LndError::ParseVersionFailed { version, error }),
         }
     }
 
     /// Ensures that we are connected to the node of address.
-    pub async fn ensure_connected(&self, node: P2PAddress) -> Result<(), CheckError> {
+    pub async fn ensure_connected(&self, node: P2PAddress) -> Result<(), LndError> {
         let pubkey = node.node_id.to_string();
         let peer_addr =
             tonic_lnd::rpc::LightningAddress { pubkey, host: node.as_host_port().to_string() };
@@ -103,17 +119,12 @@ impl LndClient {
     }
 
     /// Obtains a new bitcoin bech32 address from the our lnd node.
-    pub async fn get_new_bech32_address(&self) -> Address {
-        self.0
-            .lock()
-            .await
+    pub async fn get_new_bech32_address(&self) -> Result<Address, LndError> {
+        let mut client = self.0.lock().await;
+        let response = client
             .new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new() })
-            .await
-            .expect("failed to get chain address")
-            .into_inner()
-            .address
-            .parse()
-            .expect("lnd returned invalid address")
+            .await?;
+        response.get_ref().address.parse::<Address>().map_err(LndError::ParseBitcoinAddressFailed)
     }
 
     /// Requests to open a channel with remote node, returning the psbt of the funding transaction.
@@ -122,7 +133,7 @@ impl LndClient {
     pub async fn open_channel(
         &self,
         req: OpenChannelRequest,
-    ) -> Result<Option<PartiallySignedTransaction>, CheckError> {
+    ) -> Result<Option<PartiallySignedTransaction>, LndError> {
         let client = &mut *self.0.lock().await;
         let mut response = client.open_channel(req).await?;
         let stream = response.get_mut();
@@ -151,7 +162,7 @@ impl LndClient {
         Ok(None)
     }
 
-    pub async fn funding_state_step(&self, req: FundingTransitionMsg) -> Result<(), CheckError> {
+    pub async fn funding_state_step(&self, req: FundingTransitionMsg) -> Result<(), LndError> {
         let client = &mut *self.0.lock().await;
         client.funding_state_step(req).await?;
         Ok(())
