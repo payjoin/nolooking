@@ -58,7 +58,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 * `.unwraps()`s EVERYWHERE!
 * I swear I knew about a few more but can't remember right now :D
 
-## Nix Build
+## Nix
 
 You need to have [Nix](https://nixos.org/download.html). That's it.
 
