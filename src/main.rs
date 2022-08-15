@@ -1,8 +1,8 @@
 mod args;
+mod lnd;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use args::ArgError;
@@ -15,6 +15,7 @@ use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use ln_types::P2PAddress;
 
 use crate::args::parse_args;
+use crate::lnd::*;
 
 #[macro_use]
 extern crate serde_derive;
@@ -70,9 +71,11 @@ impl ScheduledPayJoin {
             + fees
     }
 
-    async fn test_connections(&self, client: &mut tonic_lnd::Client) {
+    /// Test connections with remote lightning nodes that we are trying to create channels with as
+    /// part of this [ScheduledPayJoin].
+    async fn test_connections(&self, client: &LndClient) {
         for channel in &self.channels {
-            ensure_connected(client, &channel.node).await;
+            client.ensure_connected(channel.node.clone()).await.expect("connection should be successful");
         }
     }
 }
@@ -103,95 +106,12 @@ impl PayJoins {
 
 #[derive(Clone)]
 struct Handler {
-    client: tonic_lnd::Client,
+    client: LndClient,
     payjoins: PayJoins,
 }
 
 impl Handler {
-    fn parse_lnd_version(version: String) -> Result<((u64, u64, u64), String), CheckError> {
-        let mut iter = match version.find('-') {
-            Some(pos) => &version[..pos],
-            None => &version,
-        }
-        .split('.');
-
-        let major = iter.next().expect("split returns non-empty iterator").parse::<u64>();
-        let minor = iter.next().unwrap_or("0").parse::<u64>();
-        let patch = iter.next().unwrap_or("0").parse::<u64>();
-
-        match (major, minor, patch) {
-            (Ok(major), Ok(minor), Ok(patch)) => Ok(((major, minor, patch), version)),
-            (Err(error), _, _) => Err(CheckError::VersionNumber { version, error }),
-            (_, Err(error), _) => Err(CheckError::VersionNumber { version, error }),
-            (_, _, Err(error)) => Err(CheckError::VersionNumber { version, error }),
-        }
-    }
-
-    async fn new(mut client: tonic_lnd::Client) -> Result<Self, CheckError> {
-        let version =
-            client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await?.into_inner().version;
-        let (parsed_version, version) = Self::parse_lnd_version(version)?;
-        if parsed_version < (0, 14, 0) {
-            return Err(CheckError::LNDTooOld(version));
-        } else if parsed_version < (0, 14, 2) {
-            eprintln!(
-                "WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible."
-            );
-        }
-        Ok(Handler { client, payjoins: Default::default() })
-    }
-}
-
-#[derive(Debug)]
-enum CheckError {
-    RequestFailed(tonic_lnd::Error),
-    VersionNumber { version: String, error: std::num::ParseIntError },
-    LNDTooOld(String),
-}
-
-impl fmt::Display for CheckError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            CheckError::RequestFailed(_) => write!(f, "failed to get LND version"),
-            CheckError::VersionNumber { version, error: _ } => {
-                write!(f, "Unparsable LND version '{}'", version)
-            }
-            CheckError::LNDTooOld(version) => write!(
-                f,
-                "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
-                version
-            ),
-        }
-    }
-}
-
-impl std::error::Error for CheckError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            CheckError::RequestFailed(error) => Some(error),
-            CheckError::VersionNumber { version: _, error } => Some(error),
-            CheckError::LNDTooOld(_) => None,
-        }
-    }
-}
-
-impl From<tonic_lnd::Error> for CheckError {
-    fn from(value: tonic_lnd::Error) -> Self { CheckError::RequestFailed(value) }
-}
-
-async fn ensure_connected(client: &mut tonic_lnd::Client, node: &P2PAddress) {
-    let pubkey = node.node_id.to_string();
-    let peer_addr =
-        tonic_lnd::rpc::LightningAddress { pubkey, host: node.as_host_port().to_string() };
-
-    let connect_req =
-        tonic_lnd::rpc::ConnectPeerRequest { addr: Some(peer_addr), perm: true, timeout: 60 };
-
-    client.connect_peer(connect_req).await.map(drop).unwrap_or_else(|error| {
-        if !error.message().starts_with("already connected to peer") {
-            panic!("failed to connect to peer {}: {:?}", node, error);
-        }
-    });
+    async fn new(client: LndClient) -> Self { Self { client, payjoins: Default::default() } }
 }
 
 fn calculate_fees(
@@ -208,17 +128,6 @@ fn calculate_fees(
     bitcoin::Amount::from_sat(fee_rate * additional_vsize)
 }
 
-async fn get_new_bech32_address(client: &mut tonic_lnd::Client) -> Address {
-    client
-        .new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new() })
-        .await
-        .expect("failed to get chain address")
-        .into_inner()
-        .address
-        .parse()
-        .expect("lnd returned invalid address")
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (config, args) =
@@ -231,11 +140,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .await
             .expect("failed to connect");
 
-    let mut handler = Handler::new(client).await?;
+    let client = LndClient::new(client).await?;
+    let mut handler = Handler::new(client).await;
 
     if let Some(payjoin) = scheduled_pj {
         payjoin.test_connections(&mut handler.client).await;
-        let address = get_new_bech32_address(&mut handler.client).await;
+        let address = handler.client.get_new_bech32_address().await;
 
         println!(
             "bitcoin:{}?amount={}&pj=https://example.com/pj",
@@ -273,12 +183,12 @@ impl bip78::receiver::Headers for Headers {
 }
 
 async fn handle_web_req(
-    mut handler: Handler,
+    handler: Handler,
     req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
     use std::path::Path;
 
-    use bitcoin::consensus::{Decodable, Encodable};
+    use bitcoin::consensus::{Encodable};
 
     match (req.method(), req.uri().path()) {
         (&Method::GET, "/pj") => {
@@ -298,7 +208,7 @@ async fn handle_web_req(
         (&Method::POST, "/pj") => {
             dbg!(req.uri().query());
 
-            let mut lnd = handler.client;
+            let lnd = handler.client;
 
             let headers = Headers(req.headers().to_owned());
             let query = {
@@ -382,9 +292,8 @@ async fn handle_web_req(
 
                 // TODO wrap lnd in mutex. A mutable reference prevents the benefits from an async call in our context
                 //    because we only have 1 client.
-                ensure_connected(&mut lnd, &channel.node).await;
+                lnd.ensure_connected(channel.node.clone()).await.expect("connection should be successful");
 
-                
                 let open_channel = tonic_lnd::rpc::OpenChannelRequest {
                     node_pubkey: channel.node.node_id.to_vec(),
                     local_funding_amount: channel
@@ -404,32 +313,11 @@ async fn handle_web_req(
                     max_local_csv: 288,
                     ..Default::default()
                 };
-                let mut update_stream = lnd
-                    .open_channel(open_channel)
-                    .await
-                    .expect("Failed to call open channel")
-                    .into_inner();
-                while let Some(message) =
-                    update_stream.message().await.expect("failed to receive update")
-                {
-                    assert_eq!(message.pending_chan_id, chid);
-                    if let Some(update) = message.update {
-                        use tonic_lnd::rpc::open_status_update::Update;
-                        match update {
-                            Update::PsbtFund(ready) => {
-                                let mut bytes = &*ready.psbt;
-                                let tx = PartiallySignedTransaction::consensus_decode(&mut bytes)
-                                    .unwrap();
-                                eprintln!("PSBT received from LND: {:#?}", tx);
-                                assert_eq!(tx.unsigned_tx.output.len(), 1);
+                let funding_psbt = lnd.open_channel(open_channel).await.unwrap();
 
-                                txouts.extend(tx.unsigned_tx.output);
-                                break;
-                            }
-                            // panic?
-                            x => panic!("Unexpected update {:?}", x),
-                        }
-                    }
+                if let Some(psbt) = funding_psbt {
+                    let txo = psbt.unsigned_tx.output[0].clone();
+                    txouts.push(txo);
                 }
             }
 
@@ -484,8 +372,8 @@ async fn handle_web_req(
             let bytes = hyper::body::to_bytes(req.into_body()).await?;
             let request =
                 serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
-            request.test_connections(&mut handler.client).await;
-            let address = get_new_bech32_address(&mut handler.client).await;
+            request.test_connections(&handler.client).await;
+            let address = handler.client.get_new_bech32_address().await;
             let total_amount = request.total_amount();
             handler.payjoins.insert(&address, request).expect("address reuse");
 
