@@ -1,5 +1,5 @@
 {
-  description = "Build L[ightning Payj]oin and its Development Environment";
+  description = "Build L[ightning PayJ]oin and its Development Environment";
 
   inputs = {
     utils.url = "github:numtide/flake-utils";
@@ -15,11 +15,14 @@
         };
 
         naersk' = pkgs.callPackage naersk {};
-
+        version = builtins.substring 0 8 self.lastModifiedDate;
       in {
         packages = {
           # For `nix build` & `nix run`:
           default = naersk'.buildPackage {
+            pname = "loin";
+            inherit version;
+
             src = ./.;
           };
 
@@ -37,14 +40,14 @@
           docker = let
             loin = self.packages.${system}.default;
           in pkgs.dockerTools.buildLayeredImage {
-            name = loin.pname;
+            name = "loin-integration";
             tag = loin.version;
             contents = [ loin ];
 
             config = {
-              Cmd = [ "cargo run" ];
+              Cmd = ["echo 'hi from docker'"];
               WorkingDir = "/";
-            }
+            };
           };
         };
       }
