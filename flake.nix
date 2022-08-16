@@ -4,10 +4,11 @@
   inputs = {
     utils.url = "github:numtide/flake-utils";
     naersk.url = "github:nix-community/naersk";
+    nix-bitcoin.url = "github:fort-nix/nix-bitcoin/release";
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   };
 
-  outputs = { self, utils, naersk, nixpkgs }:
+  outputs = { self, utils, naersk, nix-bitcoin, nixpkgs }:
     utils.lib.eachDefaultSystem (system:
       let
         pkgs = (import nixpkgs) {
@@ -28,7 +29,7 @@
 
           # For `nix develop`:
           devShells.default = pkgs.mkShell {
-            nativeBuildInputs = with pkgs; [ rustc cargo ] ++ (
+            nativeBuildInputs = with pkgs; [ rustc cargo  ] ++ (
                 lib.optional stdenv.isDarwin [
                   libiconv
                   # For `tonic_lnd`
@@ -42,7 +43,7 @@
           in pkgs.dockerTools.buildLayeredImage {
             name = "loin-integration";
             tag = loin.version;
-            contents = [ loin ];
+            contents = [ loin nix-bitcoin ];
 
             config = {
               Cmd = ["echo 'hi from docker'"];
