@@ -2,12 +2,11 @@ use std::ffi::OsString;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::scheduler::ScheduledChannel;
-use crate::ScheduledPayJoin;
+use crate::scheduler::{ScheduledChannel, ScheduledPayJoin};
 
 /// CLI argument errors.
 #[derive(Debug)]
-pub(crate) enum ArgError {
+pub enum ArgError {
     /// Argument not UTF-8
     NotUTF8(OsString),
     /// Parse feerate error
@@ -30,7 +29,7 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// Parses arguments in `[fee_rate] [(<p2p_addr>, <sats_amount>)...] [wallet_amount]`
-pub(crate) fn parse_args<A>(args: A) -> Result<Option<ScheduledPayJoin>, ArgError>
+pub fn parse_args<A>(args: A) -> Result<Option<ScheduledPayJoin>, ArgError>
 where
     A: Iterator<Item = OsString>,
 {

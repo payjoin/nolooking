@@ -27,3 +27,6 @@ configure_me = "0.4.0"
 
 [build-dependencies]
 configure_me_codegen = "0.4.1"
+
+[[bin]]
+name = "loin"

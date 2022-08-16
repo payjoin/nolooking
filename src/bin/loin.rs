@@ -1,19 +1,4 @@
-mod api;
-mod args;
-mod lnd;
-pub mod scheduler;
-
-use lnd::LndClient;
-use scheduler::ScheduledPayJoin;
-
-use crate::args::parse_args;
-use crate::scheduler::Scheduler;
-
-#[macro_use]
-extern crate serde_derive;
-extern crate configure_me;
-
-configure_me::include_config!();
+use loptos::*;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -42,11 +27,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // serve HTTP endpoints
-    let serve_opts = api::ServeOptions {
-        bind_addr: ([127, 0, 0, 1], config.bind_port).into(),
-        serve_static: true,
-    };
-    api::serve_http(scheduler, serve_opts).await?;
+    let serve_opts =
+        ServeOptions { bind_addr: ([127, 0, 0, 1], config.bind_port).into(), serve_static: true };
+    serve_http(scheduler, serve_opts).await?;
 
     Ok(())
 }
