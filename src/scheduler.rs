@@ -13,6 +13,8 @@ use tonic_lnd::rpc::OpenChannelRequest;
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
 
+/// This represents a scheduled lightning channel to be opened to node of address `node` and funding
+/// amount of `amount`.
 #[derive(Clone, serde_derive::Deserialize)]
 pub struct ScheduledChannel {
     pub(crate) node: P2PAddress,
@@ -21,6 +23,7 @@ pub struct ScheduledChannel {
 }
 
 impl ScheduledChannel {
+    /// This creates a new [ScheduledChannel] from node `addr` and funding `amount` (in satoshis).
     pub(crate) fn from_args(addr: &str, amount: &str) -> Result<Self, ArgError> {
         let node = addr.parse::<P2PAddress>().map_err(ArgError::InvalidNodeAddress)?;
 
@@ -31,16 +34,18 @@ impl ScheduledChannel {
     }
 }
 
+/// [ScheduledPayJoin] represents channel opens that should occur in the same transaction as a
+/// payjoin payment.
 #[derive(Clone, serde_derive::Deserialize)]
 pub struct ScheduledPayJoin {
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     wallet_amount: bitcoin::Amount,
-    pub(crate) channels: Vec<ScheduledChannel>,
-    pub(crate) fee_rate: u64,
+    channels: Vec<ScheduledChannel>,
+    fee_rate: u64,
 }
 
 impl ScheduledPayJoin {
-    pub(crate) fn new(
+    pub fn new(
         wallet_amount: bitcoin::Amount,
         channels: Vec<ScheduledChannel>,
         fee_rate: u64,
@@ -48,9 +53,13 @@ impl ScheduledPayJoin {
         Self { wallet_amount, channels, fee_rate }
     }
 
+    /// Calculates fee of associated scheduled payjoin.
+    ///
+    /// REPLACES: `crate::calculate_fees` (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L197-L209)
     pub fn calculate_fees(&self) -> bitcoin::Amount {
         let channel_count = self.channels.len() as u64;
 
+        // TODO: Find out why we need `+ 12`.
         let additional_vsize = if self.wallet_amount == bitcoin::Amount::ZERO {
             (channel_count - 1) * (8 + 1 + 1 + 32) + 12
         } else {
@@ -60,13 +69,19 @@ impl ScheduledPayJoin {
         bitcoin::Amount::from_sat(self.fee_rate * additional_vsize)
     }
 
+    /// Calculates the sum of all channel funding amounts.
+    ///
+    /// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L343-L353)
     pub fn sum_channel_amounts(&self) -> bitcoin::Amount {
         self.channels.iter().map(|chan| chan.amount).fold(bitcoin::Amount::ZERO, std::ops::Add::add)
     }
 
+    /// This externally exposes [ScheduledPayJoin]::wallet_amount.
     pub fn wallet_amount(&self) -> bitcoin::Amount { self.wallet_amount }
 
     /// Calculates the expected owned output value that this scheduled payjoin should have.
+    ///
+    /// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L358)
     pub fn total_amount(&self) -> bitcoin::Amount {
         let fees = self.calculate_fees();
         let channel_amounts_sum = self.sum_channel_amounts();
@@ -76,6 +91,11 @@ impl ScheduledPayJoin {
 
     /// Test connections with remote lightning nodes that we are trying to create channels with as
     /// part of this [ScheduledPayJoin].
+    ///
+    /// REPLACES: `ScheduledPayJoin::test_connections` (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L73-L77)
+    /// CHANGES:
+    ///     * Added parallelism.
+    ///     * Return `LndError` instead of panic.
     pub async fn test_connections(&self, client: &LndClient) -> Result<(), LndError> {
         let handles = self
             .channels
@@ -92,7 +112,13 @@ impl ScheduledPayJoin {
         Ok(())
     }
 
-    /// Generates `open_channel` requests for each channel associated with the [ScheduledPayJoin].
+    /// Generates `open_channel` requests types for each channel open that is to be triggered by
+    /// [ScheduledPayJoin].
+    ///
+    /// REPLACES: The start of (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L373-L434)
+    /// CHANGES:
+    ///     * Originally, request message creation and remote calls are intertwined, we separate the
+    ///         "message creation" logic into this function below.
     pub fn generate_open_channel_requests(
         &self,
     ) -> Vec<(P2PAddress, ChannelId, OpenChannelRequest)> {
@@ -137,10 +163,15 @@ impl ScheduledPayJoin {
     }
 }
 
+/// Represents a lightning channel id.
 pub type ChannelId = [u8; 32];
 
+/// Generates a random [ChannelId] that can be used as the `temporary_channel_id`.
+///
+/// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L363)
 fn generate_channel_id() -> ChannelId { rand::random() }
 
+/// [Scheduler] contains the business logic.
 #[derive(Clone)]
 pub struct Scheduler {
     lnd: LndClient,                                     // LND client
@@ -152,6 +183,10 @@ impl Scheduler {
     pub fn new(lnd: LndClient) -> Self { Self { lnd, pjs: Default::default() } }
 
     /// Schedules a payjoin.
+    ///
+    /// REPLACES:
+    ///     * schedule from cli args (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L237-L246)
+    ///     * `POST /pj/schedule` (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L487-L490)
     pub async fn schedule_payjoin(
         &self,
         pj: &ScheduledPayJoin,
@@ -191,12 +226,16 @@ impl Scheduler {
         let mut proposal_psbt =
             self.pop_payjoin(proposal_psbt)?.ok_or(SchedulerError::OriginalPsbtNotRecognized)?;
 
-        // multi `open_channel` requests, return funding txouts
-        let (funding_txouts, chan_ids) = proposal_psbt.multi_open_channel(&self.lnd).await?;
+        // initiate multiple `open_channel` requests and return the vector of
+        // (temporary_channel_id, funding_txout)
+        let open_chan_results = proposal_psbt.multi_open_channel(&self.lnd).await?;
+        let funding_txouts = open_chan_results.iter().map(|(_, txo)| txo.clone());
+        let temporary_chan_ids = open_chan_results.iter().map(|(id, _)| *id);
 
-        // `funding_created` request
+        // create and send `funding_created` to all responding lightning nodes
         let funding_created_psbt = proposal_psbt.generate_funding_created(funding_txouts)?;
-        self.lnd.verify_funding(&funding_created_psbt, chan_ids).await?;
+        // REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L454-L470)
+        self.lnd.verify_funding(&funding_created_psbt, temporary_chan_ids).await?;
 
         // return proposal psbt
         let bip78_proposal_psbt = proposal_psbt.generate_from_unsigned_tx();
@@ -209,8 +248,8 @@ impl Scheduler {
         pj_by_spk.insert(bitcoin_addr.script_pubkey(), pj.clone()).is_none()
     }
 
-    /// If an psbt output matches one of the scheduled payjoins, we pop the payjoin and create a
-    /// [ProposalPsbt].
+    /// If the psbt output matches one of the scheduled payjoin-channel-funding requests, we pop the
+    /// PJCF request and create a [ProposalPsbt] (`PayJoinChannelFundingState`).
     fn pop_payjoin(
         &self,
         mut psbt: PartiallySignedTransaction,
@@ -241,19 +280,26 @@ impl Scheduler {
     }
 }
 
+/// Represents the state of the payjoin channel funding.
+///
+/// TODO: Rename to `PayJoinChannelFundingState`?
+/// TODO: Use state types to represent: original(ish) psbt -> multi-channel-funding psbt -> proposal psbt
 pub struct ProposalPsbt {
-    psbt: PartiallySignedTransaction,
+    psbt: PartiallySignedTransaction, // original psbt -> proposed psbt
     owned_vout: usize,
     pj: ScheduledPayJoin,
 }
 
 impl ProposalPsbt {
+    /// Obtain the owned output of the original(ish) psbt.
     pub fn owned_output(&self) -> &TxOut { &self.psbt.unsigned_tx.output[self.owned_vout] }
 
+    /// Obtain the owned output of the original(ish) psbt as mutable.
     pub fn owned_output_mut(&mut self) -> &mut TxOut {
         &mut self.psbt.unsigned_tx.output[self.owned_vout]
     }
 
+    /// Check that amounts make sense for original(ish) psbt.
     pub fn check_amounts(&self) -> bool {
         let chan_amounts_sum = self.pj.sum_channel_amounts();
         let fees = self.pj.calculate_fees();
@@ -264,38 +310,56 @@ impl ProposalPsbt {
         (chan_amounts_sum + fees + wallet_amount).as_sat() == owned_txout_value
     }
 
+    /// This initiates multiple `open_channel` requests that are sent to the responding node.
+    ///
+    /// It returns a vector of `(chan_id, funding_txo)` for each `accept_channel` received, in which
+    /// `funding_txo` is the funding output of the funding psbt that is proposal (but not yet
+    /// broadcasted) by the lnd node.
+    ///
+    /// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L361-L434)
+    ///     * In the original code, the loop populates:
+    ///         `chids` (temporary channel ids) and `txouts` (funding txouts)
     pub async fn multi_open_channel(
         &self,
         lnd: &LndClient,
-    ) -> Result<(Vec<TxOut>, Vec<ChannelId>), SchedulerError> {
+    ) -> Result<Vec<(ChannelId, TxOut)>, SchedulerError> {
+        // prepare `open_channel` requests
         let requests = self.pj.generate_open_channel_requests();
 
+        // vector of `(temporary_channel_id, future<...>)`
         let handles = requests
             .iter()
             .cloned()
-            .map(|(node, _, req)| {
+            .map(|(node, chan_id, req)| {
                 let lnd = lnd.clone();
-                tokio::spawn(async move { open_channel(lnd, node, req).await })
+                let handle = tokio::spawn(async move { open_channel(lnd, node, req).await });
+                (chan_id, handle)
             })
             .collect::<Vec<_>>();
 
-        let mut funding_vouts = Vec::<TxOut>::with_capacity(handles.len());
-        for handle in handles {
+        // wait for futures, retaining those that are successful/accepted into a vector of
+        // `(temporary_channel_id, funding_txout)`
+        let mut funding_txos = Vec::<(ChannelId, TxOut)>::with_capacity(handles.len());
+        for (chan_id, handle) in handles {
             match handle.await.unwrap()? {
-                Some(vout) => funding_vouts.push(vout),
+                Some(vout) => funding_txos.push((chan_id, vout)),
                 None => eprintln!("failed to receive funding psbt after channel open request - this is not handled"),
             };
         }
 
-        if funding_vouts.is_empty() {
+        if funding_txos.is_empty() {
             Err(SchedulerError::PayJoinCannotOpenAnyChannel)
         } else {
-            let chan_ids = requests.iter().map(|(_, id, _)| *id).collect::<Vec<_>>();
-            Ok((funding_vouts, chan_ids))
+            Ok(funding_txos)
         }
     }
 
     /// Creates a raw `funding_created` psbt.
+    ///
+    /// Instead of funding one channel per tx, we fund multiple channels with one tx. This function
+    /// returns the "joined" funding channel psbt as encoded bytes.
+    ///
+    /// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L436-L452)
     pub fn generate_funding_created<I>(
         &mut self,
         funding_txouts: I,
@@ -331,6 +395,10 @@ impl ProposalPsbt {
         Ok(raw_psbt)
     }
 
+    /// Generates the bip-0078 proposal psbt.
+    ///
+    /// REPLACES: ~ (https://github.com/chaincase-app/loin/blob/07e301ddda4d02b00dc5c057a2461667ab8bafea/src/main.rs#L472-L477)
+    ///     * We do not base64-encode here (the final step), this is done in [Scheduler]::satisfy_payjoin.
     pub fn generate_from_unsigned_tx(&self) -> Vec<u8> {
         // Reset transaction state to be non-finalized
         let psbt = PartiallySignedTransaction::from_unsigned_tx(self.psbt.unsigned_tx.clone())
@@ -343,21 +411,17 @@ impl ProposalPsbt {
     }
 }
 
-/// Opens a channel with remote lnd node and returns the funding txout.
+/// Opens a channel with remote lnd node and returns the "proposed" funding txout.
+///
+/// TODO: Consider moving this in [Scheduler]::multi_open_channel (as that is the only place this
+///       is used)
 async fn open_channel(
     lnd: LndClient,
     node: P2PAddress,
     req: OpenChannelRequest,
 ) -> Result<Option<TxOut>, SchedulerError> {
     lnd.ensure_node_connected(node).await?;
-    let funding_txout = lnd.open_channel(req).await?.map(|psbt| {
-        assert_eq!(
-            psbt.unsigned_tx.output.len(),
-            1,
-            "funding channel psbt should only have one output"
-        );
-        psbt.unsigned_tx.output[0].clone()
-    });
+    let funding_txout = lnd.open_channel(req).await?.map(|psbt| psbt.unsigned_tx.output[0].clone());
 
     Ok(funding_txout)
 }

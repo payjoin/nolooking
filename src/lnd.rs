@@ -76,7 +76,8 @@ impl LndClient {
         response.get_ref().address.parse::<Address>().map_err(LndError::ParseBitcoinAddressFailed)
     }
 
-    /// Requests to open a channel with remote node, returning the psbt of the funding transaction.
+    /// Requests to open a channel with remote node, returning the funding psbt "proposed" by the
+    /// lnd node that is ready to be sent (but not sent yet).
     ///
     /// TODO: This should not panic, have proper error handling.
     pub async fn open_channel(
