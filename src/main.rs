@@ -23,7 +23,7 @@ extern crate configure_me;
 configure_me::include_config!();
 
 #[cfg(not(feature = "test_paths"))]
-const STATIC_DIR: &str = "/usr/share/loptos/static";
+const STATIC_DIR: &str = "/usr/share/loin/static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";

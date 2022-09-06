@@ -41,7 +41,7 @@ Good luck analyzing that!
 
 ### UX implications
 
-All this is possible without loptos by [manually exchanging PSBTs](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md).
+All this is possible without loin by [manually exchanging PSBTs](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md).
 BIP78 turns that tedious back and forth into scanning/clicking one link followed by confirmation in the wallet.
 In other words, your grandmother will be able to somewhat privately open a bunch of channels for you, if she has a BIP78-capable wallet.
 
@@ -62,25 +62,28 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 0. You need Rust version 1.48 or higher to compile this.
 1. You need LND v14.2 or higher
-2. `cargo build [--features=test_paths]`. The test_paths feature will serve the `static/index.html` ui contained in this folder rather than one in `/usr/share/loptos/static` in production.
+2. `cargo build [--features=test_paths]`. The test_paths feature will serve the `static/index.html` ui contained in this folder rather than one in `/usr/share/loin/static` in production.
 3. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost). or [on MacOS](https://www.storyblok.com/faq/setup-dev-server-https-proxy)
-4. create a configuration file based on `config_spec.toml`. This is mine based on a [polar](https://lightningpolar.com/) lightning network simulator setup. `CONFIGURATION_FILE=loptos.conf`: 
-```configuration
-# loptos.conf
+4. create a configuration file based on `config_spec.toml`. This is mine based on a [polar](https://lightningpolar.com/) lightning network simulator setup. `CONFIGURATION_FILE=loin.conf`:
 
-bind_port=3000
-lnd_address="https://localhost:10004"
-lnd_cert_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/tls.cert"
-lnd_macaroon_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/data/chain/bitcoin/regtest/admin.macaroon"
-```
-5. `./target/debug/loptos --conf CONFIGURATION_FILE_PATH DEST_NODE_URI AMOUNS_IN_SATS [DEST_NODE_URI AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
+   ```configuration
+   # loin.conf
+
+   bind_port=3000
+   lnd_address="https://localhost:10004"
+   lnd_cert_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/tls.cert"
+   lnd_macaroon_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/data/chain/bitcoin/regtest/admin.macaroon"
+   ```
+
+5. `./target/debug/loin --conf CONFIGURATION_FILE_PATH DEST_NODE_URI AMOUNS_IN_SATS [DEST_NODE_URI AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
 6. Copy BIP21 from command line output and paste it into one of the supported wallets. I use [the payjoin crate client](https://github.com/Kixunil/payjoin/tree/master/payjoin-client) to make a payjoin right from regtest bitcoind.
 7. Confirm the transaction and move some sats over the new channel
 
 
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present a single-sig output will be added to LND's internal wallet.
-A minimum internal wallet balance of 10,000 reserve sats per channel up to 100,000 sats is required for anchor commitments. This [can be automated](https://github.com/Kixunil/loptos/issues/11) in the future.
+A minimum internal wallet balance of 10,000 reserve sats per channel up to 100,000 sats is required for anchor commitments. This [can be automated](https://github.com/Kixunil/loin/issues/11) in the future.
+
 ## License
 
 The license is MIT, with one restriction and one warning:
