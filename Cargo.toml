@@ -1,7 +1,7 @@
 [package]
-name = "loptos"
+name = "loin"
 version = "0.1.0"
-authors = ["Martin Habovstiak <martin.habovstiak@gmail.com>"]
+authors = ["Dan Gould <d@ngould.dev>", "Martin Habovstiak <martin.habovstiak@gmail.com>"]
 edition = "2018"
 
 [package.metadata.configure_me]

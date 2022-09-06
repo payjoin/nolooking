@@ -1,5 +1,5 @@
 [general]
-env_prefix = "LOPTOS"
+env_prefix = "LOIN"
 conf_file_param = "conf"
 conf_dir_param = "conf_dir"
 doc = """
@@ -11,7 +11,7 @@ This server optimizes your channel opening from a remote wallet which supports P
 [[param]]
 name = "bind_port"
 type = "u16"
-doc = "Loptos HTTP port to listen on"
+doc = "Loin HTTP port to listen on"
 optional = false
 
 [[param]]
