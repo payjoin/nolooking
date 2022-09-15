@@ -76,7 +76,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
    lnd_macaroon_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/data/chain/bitcoin/regtest/admin.macaroon"
    ```
 
-5. `./target/debug/loin --conf CONFIGURATION_FILE_PATH DEST_NODE_URI AMOUNS_IN_SATS [DEST_NODE_URI AMOUNS_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
+5. `cargo run --features=test_paths -- --conf CONFIGURATION_FILE_PATH FEE_RATE DEST_NODE_URI AMOUNT_IN_SATS [DEST_NODE_URI AMOUNT_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
 6. Copy BIP21 from command line output and paste it into one of the supported wallets. I use [the payjoin crate client](https://github.com/Kixunil/payjoin/tree/master/payjoin-client) to make a payjoin right from regtest bitcoind.
 7. Confirm the transaction and move some sats over the new channel
 
