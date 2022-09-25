@@ -1,1 +1,3 @@
 /target
+tests/compose/nginx/ssl/localhost-key.pem
+tests/compose/nginx/ssl/localhost.pem

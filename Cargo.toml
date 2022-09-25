@@ -2,6 +2,7 @@
 name = "loin"
 version = "0.1.0"
 authors = ["Dan Gould <d@ngould.dev>", "Martin Habovstiak <martin.habovstiak@gmail.com>"]
+exclude = ["./tests/compose"]
 edition = "2018"
 
 [package.metadata.configure_me]
@@ -27,3 +28,7 @@ configure_me = "0.4.0"
 
 [build-dependencies]
 configure_me_codegen = "0.4.1"
+
+[dev-dependencies]
+bitcoincore-rpc = "0.15.0"
+rcgen =  "0.10.0"
