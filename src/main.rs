@@ -6,7 +6,6 @@ pub mod scheduler;
 use scheduler::Scheduler;
 
 use crate::args::parse_args;
-use crate::lnd::*;
 
 #[macro_use]
 extern crate serde_derive;

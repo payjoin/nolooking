@@ -1,0 +1,119 @@
+version: "3"
+
+services:
+  nginx:
+    image: nginx:latest
+    volumes:
+      - "./nginx/reverse-https-proxy.conf:/etc/nginx/nginx.conf"
+      - "./nginx/ssl:/etc/ssl"
+    expose:
+      - "3010"
+      - "3000"
+
+  bitcoind:
+    restart: unless-stopped
+    image: btcpayserver/bitcoin:22.0
+    environment:
+      BITCOIN_NETWORK: regtest
+      BITCOIN_WALLETDIR: "/data/wallets"
+      BITCOIN_EXTRA_ARGS: |-
+        rpcuser=ceiwHEbqWI83
+        rpcpassword=DwubwWsoo3
+        rpcport=43782
+        rpcbind=0.0.0.0:43782
+        rpcallowip=0.0.0.0/0
+        port=39388
+        whitelist=0.0.0.0/0
+        zmqpubrawblock=tcp://0.0.0.0:28332
+        zmqpubrawtx=tcp://0.0.0.0:28333
+        deprecatedrpc=signrawtransaction
+        fallbackfee=0.0002
+    ports:
+      - "43782:43782"
+      - "39388:39388"
+    expose:
+      - "43782" # RPC
+      - "39388" # P2P
+      - "28332" # ZMQ
+      - "28333" # ZMQ
+    volumes:
+      - "bitcoin_datadir:/data"
+      
+  merchant_lnd:
+    image: btcpayserver/lnd:v0.15.0-beta
+    restart: unless-stopped
+    environment:
+      LND_CHAIN: "btc"
+      LND_ENVIRONMENT: "regtest"
+      LND_EXPLORERURL: "http://nbxplorer:32838/"
+      LND_REST_LISTEN_HOST: http://merchant_lnd:8080
+      LND_EXTRA_ARGS: |
+        restlisten=merchant_lnd:8080
+        rpclisten=127.0.0.1:10008
+        rpclisten=merchant_lnd:10009
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpcuser=ceiwHEbqWI83
+        bitcoind.rpcpass=DwubwWsoo3
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        externalip=merchant_lnd:9735
+        bitcoin.defaultchanconfs=1
+        no-macaroons=1
+        debuglevel=debug
+        trickledelay=1000
+        no-rest-tls=1
+    ports:
+      - "35531:8080"
+      - "53280:10009"
+    expose:
+      - "8080"
+      - "9735"
+      - "10009"
+    volumes:
+      - "merchant_lnd_datadir:/data"
+      - "bitcoin_datadir:/deps/.bitcoin"
+    depends_on:
+      - bitcoind
+
+  customer_lnd:
+    image: btcpayserver/lnd:v0.15.0-beta
+    restart: unless-stopped
+    environment:
+      LND_CHAIN: "btc"
+      LND_ENVIRONMENT: "regtest"
+      LND_EXPLORERURL: "http://nbxplorer:32838/"
+      LND_REST_LISTEN_HOST: http://customer_lnd:8080
+      LND_EXTRA_ARGS: |
+        restlisten=customer_lnd:8080
+        rpclisten=127.0.0.1:10008
+        rpclisten=customer_lnd:10009
+        bitcoin.node=bitcoind
+        bitcoind.rpchost=bitcoind:43782
+        bitcoind.rpcuser=ceiwHEbqWI83
+        bitcoind.rpcpass=DwubwWsoo3
+        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
+        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
+        externalip=customer_lnd:9735
+        bitcoin.defaultchanconfs=1
+        no-macaroons=1
+        debuglevel=debug
+        trickledelay=1000
+        no-rest-tls=1
+    ports:
+      - "35532:8080"
+    expose:
+      - "8080"
+      - "9735"
+      - "10009"
+    volumes:
+      - "customer_lnd_datadir:/root/.lnd"
+      - "bitcoin_datadir:/deps/.bitcoin"
+    depends_on:
+      - bitcoind
+
+volumes:
+  bitcoin_datadir:
+  merchant_lnd_datadir:
+  customer_lnd_datadir:
+
