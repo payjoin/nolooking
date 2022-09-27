@@ -1,7 +1,9 @@
-use std::collections::HashMap;
-use std::convert::TryInto;
-use std::fmt;
-use std::sync::{Arc, Mutex};
+use std::{
+    collections::HashMap,
+    convert::TryInto,
+    fmt,
+    sync::{Arc, Mutex},
+};
 
 use bip78::receiver::{Proposal, UncheckedProposal};
 use bitcoin::consensus::Encodable;
@@ -235,6 +237,10 @@ pub struct Scheduler {
 impl Scheduler {
     /// New [Scheduler].
     pub fn new(lnd: LndClient) -> Self { Self { lnd, pjs: Default::default() } }
+
+    pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
+        Ok(Scheduler::new(LndClient::from_config(&config).await?))
+    }
 
     /// Schedules a payjoin.
     pub async fn schedule_payjoin(
