@@ -38,82 +38,52 @@ services:
       - "28333" # ZMQ
     volumes:
       - "bitcoin_datadir:/data"
-      
+
   merchant_lnd:
-    image: btcpayserver/lnd:v0.15.0-beta
+    image: lightninglabs/lndinit:daily-testing-only
     restart: unless-stopped
     environment:
-      LND_CHAIN: "btc"
-      LND_ENVIRONMENT: "regtest"
-      LND_EXPLORERURL: "http://nbxplorer:32838/"
       LND_REST_LISTEN_HOST: http://merchant_lnd:8080
-      LND_EXTRA_ARGS: |
-        restlisten=merchant_lnd:8080
-        rpclisten=127.0.0.1:10008
-        rpclisten=merchant_lnd:10009
-        bitcoin.node=bitcoind
-        bitcoind.rpchost=bitcoind:43782
-        bitcoind.rpcuser=ceiwHEbqWI83
-        bitcoind.rpcpass=DwubwWsoo3
-        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
-        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
-        externalip=merchant_lnd:9735
-        bitcoin.defaultchanconfs=1
-        no-macaroons=1
-        debuglevel=debug
-        trickledelay=1000
-        no-rest-tls=1
     ports:
       - "35531:8080"
       - "53280:10009"
+      - "53281:10008"
     expose:
       - "8080"
       - "9735"
       - "10009"
     volumes:
+      - "./lnd/merchant-lnd.conf:/data/lnd.conf"
+      - "./lnd/lnd-init.sh:/lnd-init.sh"
       - "merchant_lnd_datadir:/data"
       - "bitcoin_datadir:/deps/.bitcoin"
+    entrypoint: /lnd-init.sh
     depends_on:
       - bitcoind
 
-  customer_lnd:
-    image: btcpayserver/lnd:v0.15.0-beta
+  peer_lnd:
+    image: lightninglabs/lndinit:daily-testing-only
     restart: unless-stopped
     environment:
-      LND_CHAIN: "btc"
-      LND_ENVIRONMENT: "regtest"
-      LND_EXPLORERURL: "http://nbxplorer:32838/"
-      LND_REST_LISTEN_HOST: http://customer_lnd:8080
-      LND_EXTRA_ARGS: |
-        restlisten=customer_lnd:8080
-        rpclisten=127.0.0.1:10008
-        rpclisten=customer_lnd:10009
-        bitcoin.node=bitcoind
-        bitcoind.rpchost=bitcoind:43782
-        bitcoind.rpcuser=ceiwHEbqWI83
-        bitcoind.rpcpass=DwubwWsoo3
-        bitcoind.zmqpubrawblock=tcp://bitcoind:28332
-        bitcoind.zmqpubrawtx=tcp://bitcoind:28333
-        externalip=customer_lnd:9735
-        bitcoin.defaultchanconfs=1
-        no-macaroons=1
-        debuglevel=debug
-        trickledelay=1000
-        no-rest-tls=1
+      LND_REST_LISTEN_HOST: http://peer_lnd:8080
     ports:
       - "35532:8080"
+      - "53283:10009"
     expose:
       - "8080"
       - "9735"
-      - "10009"
+      - "10010"
     volumes:
-      - "customer_lnd_datadir:/root/.lnd"
+      - "./lnd/peer-lnd.conf:/data/lnd.conf"
+      - "./lnd/lnd-init.sh:/lnd-init.sh"
+      - "peer_lnd_datadir:/data"
       - "bitcoin_datadir:/deps/.bitcoin"
+    entrypoint: /lnd-init.sh
     depends_on:
       - bitcoind
 
 volumes:
   bitcoin_datadir:
   merchant_lnd_datadir:
-  customer_lnd_datadir:
+  peer_lnd_datadir:
 

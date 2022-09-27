@@ -32,3 +32,5 @@ configure_me_codegen = "0.4.1"
 [dev-dependencies]
 bitcoincore-rpc = "0.15.0"
 rcgen =  "0.10.0"
+tempfile = "3"
+tonic = "0.6.2"

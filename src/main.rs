@@ -20,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let scheduled_pj = parse_args(args).expect("failed to parse remaining arguments");
 
-    let scheduler = Scheduler::new(LndClient::from_config(&config).await?);
+    let scheduler = Scheduler::from_config(&config).await?;
 
     if let Some(payjoin) = scheduled_pj {
         let address = scheduler.schedule_payjoin(&payjoin).await?;
