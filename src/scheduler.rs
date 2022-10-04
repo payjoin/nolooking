@@ -23,6 +23,10 @@ pub struct ScheduledChannel {
 }
 
 impl ScheduledChannel {
+    pub fn new(node: P2PAddress, amount: bitcoin::Amount) -> Self {
+        Self { node, amount }
+    } 
+
     pub(crate) fn from_args(addr: &str, amount: &str) -> Result<Self, ArgError> {
         let node = addr.parse::<P2PAddress>().map_err(ArgError::InvalidNodeAddress)?;
 
