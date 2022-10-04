@@ -34,3 +34,6 @@ bitcoincore-rpc = "0.15.0"
 rcgen =  "0.10.0"
 tempfile = "3"
 tonic = "0.6.2"
+hyper = { version = "0.14.9", features = ["full"] }
+hyper-tls = "0.5.0"
+tokio-native-tls = "0.3"
