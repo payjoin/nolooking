@@ -1,5 +1,6 @@
 mod args;
 mod lnd;
+pub mod scheduler;
 
 use std::collections::HashMap;
 use std::convert::TryInto;
@@ -13,6 +14,7 @@ use bitcoin::{Script, TxOut};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use ln_types::P2PAddress;
+use scheduler::ScheduledPayJoin;
 
 use crate::args::parse_args;
 use crate::lnd::*;
@@ -28,60 +30,6 @@ const STATIC_DIR: &str = "/usr/share/loin/static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
-
-#[derive(Clone, serde_derive::Deserialize)]
-struct ScheduledChannel {
-    node: P2PAddress,
-    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
-    amount: bitcoin::Amount,
-}
-
-impl ScheduledChannel {
-    fn from_args(addr: &str, amount: &str) -> Result<Self, ArgError> {
-        let node = addr.parse::<P2PAddress>().map_err(ArgError::InvalidNodeAddress)?;
-
-        let amount = bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi)
-            .map_err(ArgError::InvalidBitcoinAmount)?;
-
-        Ok(Self { node, amount })
-    }
-}
-
-#[derive(Clone, serde_derive::Deserialize)]
-struct ScheduledPayJoin {
-    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
-    wallet_amount: bitcoin::Amount,
-    channels: Vec<ScheduledChannel>,
-    fee_rate: u64,
-}
-
-impl ScheduledPayJoin {
-    fn total_amount(&self) -> bitcoin::Amount {
-        let fees = calculate_fees(
-            self.channels.len() as u64,
-            self.fee_rate,
-            self.wallet_amount != bitcoin::Amount::ZERO,
-        );
-
-        self.channels
-            .iter()
-            .map(|channel| channel.amount)
-            .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
-            + self.wallet_amount
-            + fees
-    }
-
-    /// Test connections with remote lightning nodes that we are trying to create channels with as
-    /// part of this [ScheduledPayJoin].
-    async fn test_connections(&self, client: &LndClient) {
-        for channel in &self.channels {
-            client
-                .ensure_connected(channel.node.clone())
-                .await
-                .expect("connection should be successful");
-        }
-    }
-}
 
 #[derive(Clone, Default)]
 struct PayJoins(Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>);
@@ -115,20 +63,6 @@ struct Handler {
 
 impl Handler {
     async fn new(client: LndClient) -> Self { Self { client, payjoins: Default::default() } }
-}
-
-fn calculate_fees(
-    channel_count: u64,
-    fee_rate: u64,
-    has_additional_output: bool,
-) -> bitcoin::Amount {
-    let additional_vsize = if has_additional_output {
-        channel_count * (8 + 1 + 1 + 32)
-    } else {
-        (channel_count - 1) * (8 + 1 + 1 + 32) + 12
-    };
-
-    bitcoin::Amount::from_sat(fee_rate * additional_vsize)
 }
 
 #[tokio::main]
@@ -259,7 +193,7 @@ async fn handle_web_req(
                 .map(|channel| channel.amount)
                 .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
             // TODO: replace with sheduled_payjoin.fees()
-            let fees = calculate_fees(
+            let fees = scheduler::calculate_fees(
                 scheduled_payjoin.channels.len() as u64,
                 scheduled_payjoin.fee_rate,
                 scheduled_payjoin.wallet_amount != bitcoin::Amount::ZERO,
@@ -270,63 +204,12 @@ async fn handle_web_req(
                 our_output.value,
                 (total_channel_amount + scheduled_payjoin.wallet_amount + fees).as_sat()
             );
+            // TODO handle error
+            let open_chan_results = scheduled_payjoin.multi_open_channel(&lnd).await.unwrap();
 
-            let chids = (0..scheduled_payjoin.channels.len())
-                .into_iter()
-                .map(|_| rand::random::<[u8; 32]>())
-                .collect::<Vec<_>>();
+            let mut txouts = open_chan_results.iter().map(|(_, txo)| txo.clone());
+            let chids = open_chan_results.iter().map(|(id, _)| *id);
 
-            // these are channel-open txouts
-            // no collect() because of async
-            let mut txouts = Vec::with_capacity(scheduled_payjoin.channels.len());
-
-            // TODO: Creating `OpenChannelRequest`s should be it's own loop or functional iterator.
-            //       Async calls into LND should be done in a step after.
-            // TODO: ❗️ Handle Channel open fails & timeouts. They corrupt the node.❗️
-            for (channel, chid) in scheduled_payjoin.channels.iter().zip(&chids) {
-                let psbt_shim = tonic_lnd::rpc::PsbtShim {
-                    pending_chan_id: Vec::from(chid as &[_]),
-                    base_psbt: Vec::new(),
-                    no_publish: true,
-                };
-
-                let funding_shim = tonic_lnd::rpc::funding_shim::Shim::PsbtShim(psbt_shim);
-                let funding_shim = tonic_lnd::rpc::FundingShim { shim: Some(funding_shim) };
-
-                // TODO wrap lnd in mutex. A mutable reference prevents the benefits from an async call in our context
-                //    because we only have 1 client.
-                lnd.ensure_connected(channel.node.clone())
-                    .await
-                    .expect("connection should be successful");
-
-                let open_channel = tonic_lnd::rpc::OpenChannelRequest {
-                    node_pubkey: channel.node.node_id.to_vec(),
-                    local_funding_amount: channel
-                        .amount
-                        .as_sat()
-                        .try_into()
-                        .expect("amount too large"),
-                    push_sat: 0,
-                    private: false,
-                    min_htlc_msat: 0,
-                    remote_csv_delay: 0,
-                    spend_unconfirmed: false,
-                    close_address: String::new(),
-                    funding_shim: Some(funding_shim),
-                    remote_max_value_in_flight_msat: channel.amount.as_sat() * 1000,
-                    remote_max_htlcs: 10,
-                    max_local_csv: 288,
-                    ..Default::default()
-                };
-                let funding_psbt = lnd.open_channel(open_channel).await.unwrap();
-
-                if let Some(psbt) = funding_psbt {
-                    let txo = psbt.unsigned_tx.output[0].clone();
-                    txouts.push(txo);
-                }
-            }
-
-            let mut txouts = txouts.into_iter();
             let channel_output = txouts.next().expect("no channels");
 
             if scheduled_payjoin.wallet_amount == bitcoin::Amount::ZERO {
@@ -344,9 +227,9 @@ async fn handle_web_req(
             let mut psbt_bytes = Vec::new();
             psbt.consensus_encode(&mut psbt_bytes).unwrap();
 
-            for chid in &chids {
+            for chid in chids {
                 let psbt_verify = tonic_lnd::rpc::FundingPsbtVerify {
-                    pending_chan_id: Vec::from(chid as &[_]),
+                    pending_chan_id: Vec::from(&chid as &[_]),
                     funded_psbt: psbt_bytes.clone(),
                     skip_finalize: true,
                 };
