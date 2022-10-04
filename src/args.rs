@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::{ScheduledChannel, ScheduledPayJoin};
+use crate::scheduler::{ScheduledChannel, ScheduledPayJoin};
 
 /// CLI argument errors.
 #[derive(Debug)]
