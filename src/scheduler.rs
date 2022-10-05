@@ -1,11 +1,12 @@
 use std::convert::TryInto;
+use std::fmt;
 
 use bitcoin::TxOut;
 use ln_types::P2PAddress;
 use tonic_lnd::rpc::OpenChannelRequest;
 
 use crate::args::ArgError;
-use crate::lnd::LndClient;
+use crate::lnd::{LndClient, LndError};
 
 #[derive(Clone, serde_derive::Deserialize)]
 pub struct ScheduledChannel {
@@ -60,7 +61,10 @@ impl ScheduledPayJoin {
         }
     }
 
-    pub async fn multi_open_channel(&self, lnd: &LndClient) -> Result<Vec<(ChannelId, TxOut)>, ()> {
+    pub async fn multi_open_channel(
+        &self,
+        lnd: &LndClient,
+    ) -> Result<Vec<(ChannelId, TxOut)>, SchedulerError> {
         let requests = self.generate_open_channel_requests();
 
         let handles = requests
@@ -68,15 +72,15 @@ impl ScheduledPayJoin {
             .cloned()
             .map(|(node, chan_id, req)| {
                 let lnd = lnd.clone();
-                let handle = tokio::spawn(async move {
-                    lnd.ensure_connected(node).await.unwrap(); // TODO return LndErrors
-                    let funding_txout = lnd
-                        .open_channel(req)
-                        .await
-                        .unwrap()
-                        .map(|psbt| psbt.unsigned_tx.output[0].clone());
-                    Ok(funding_txout)
-                });
+                let handle: tokio::task::JoinHandle<Result<Option<TxOut>, SchedulerError>> =
+                    tokio::spawn(async move {
+                        lnd.ensure_connected(node).await?;
+                        let funding_txout = lnd
+                            .open_channel(req)
+                            .await?
+                            .map(|psbt| psbt.unsigned_tx.output[0].clone());
+                        Ok(funding_txout)
+                    });
                 (chan_id, handle)
             })
             .collect::<Vec<_>>();
@@ -90,8 +94,7 @@ impl ScheduledPayJoin {
         }
 
         if funding_txos.is_empty() {
-            // TODO return LndError
-            panic!("PayJoin cannot open any channel");
+            Err(SchedulerError::PayJoinCannotOpenAnyChannel)
         } else {
             Ok(funding_txos)
         }
@@ -156,4 +159,24 @@ pub fn calculate_fees(
     };
 
     bitcoin::Amount::from_sat(fee_rate * additional_vsize)
+}
+
+#[derive(Debug)]
+pub enum SchedulerError {
+    Lnd(LndError),
+    /// Failed to open any channel for [ScheduledPayJoin].
+    PayJoinCannotOpenAnyChannel,
+}
+
+impl fmt::Display for SchedulerError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // TODO: Have proper printing
+        write!(f, "scheduler error: {:?}", self)
+    }
+}
+
+impl std::error::Error for SchedulerError {}
+
+impl From<LndError> for SchedulerError {
+    fn from(v: LndError) -> Self { Self::Lnd(v) }
 }

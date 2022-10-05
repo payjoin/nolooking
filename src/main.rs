@@ -3,17 +3,14 @@ mod lnd;
 pub mod scheduler;
 
 use std::collections::HashMap;
-use std::convert::TryInto;
 use std::sync::{Arc, Mutex};
 
-use args::ArgError;
 use bip78::receiver::*;
 use bitcoin::util::address::Address;
 use bitcoin::util::psbt::PartiallySignedTransaction;
 use bitcoin::{Script, TxOut};
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
-use ln_types::P2PAddress;
 use scheduler::ScheduledPayJoin;
 
 use crate::args::parse_args;
