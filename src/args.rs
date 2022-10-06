@@ -70,5 +70,5 @@ where
         }
     };
 
-    Ok(Some(ScheduledPayJoin { wallet_amount, channels, fee_rate }))
+    Ok(Some(ScheduledPayJoin::new(wallet_amount, channels, fee_rate)))
 }
