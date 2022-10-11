@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod integration {
+    use std::time::Duration;
     use std::{
         env,
         process::Command,
@@ -146,7 +147,7 @@ mod integration {
 
         let bind_addr = ([127, 0, 0, 1], 3000).into();
         // trigger payjoin-client
-        let payjoin_client = tokio::spawn(async move {
+        let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for loin server to run we'll make requests to a closed port
             std::thread::sleep(std::time::Duration::from_secs(2));
 
@@ -168,7 +169,7 @@ mod integration {
                 fee_rate: Some(bip78::bitcoin::Amount::from_sat(2000)),
                 ..Default::default()
             };
-            let psbt = bitcoin_rpc
+            let psbt = &bitcoin_rpc
                 .wallet_create_funded_psbt(
                     &[], // inputs
                     &outputs,
@@ -215,19 +216,26 @@ mod integration {
             bitcoin_rpc.wallet_process_psbt(&serialize_psbt(&psbt), None, None, None).unwrap().psbt;
             let tx = bitcoin_rpc.finalize_psbt(&psbt, Some(true)).unwrap().hex.expect("incomplete psbt");
             bitcoin_rpc.send_raw_transaction(&tx).unwrap();
+
+            // Open channel on newly created payjoin
+            bitcoin_rpc.generate_to_address(8, &source_address).unwrap();
+            std::thread::sleep(Duration::from_secs(1));
         });
 
         let loin_server = http::serve(scheduler, bind_addr);
 
         tokio::select! {
-            _ = payjoin_client => println!("payjoin-client completed first"),
+            _ = payjoin_channel_open => println!("payjoin-client completed first"),
             _ = loin_server => println!("loin server stopped first. This shouldn't happen"),
             _ = tokio::time::sleep(std::time::Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
         };
 
-        println!("Fail test until integration is complete");
-        assert!(false);
+        let bal_res = peer_client.channel_balance(tonic_lnd::rpc::ChannelBalanceRequest::default()).await?;
+        println!("{:?}",bal_res);
+        let merchant_side_channel_balance = bal_res.into_inner().remote_balance.unwrap().sat;
+        println!("{:?}",merchant_side_channel_balance);
 
+        assert!(merchant_side_channel_balance != 0);
         Ok(())
     }
     struct Fixture {
