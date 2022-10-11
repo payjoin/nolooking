@@ -1,6 +1,6 @@
 <html>
 	<head>
-		<title>Loin</title>
+		<title>Lightning PayJoin</title>
 		<style>
 			.invisible {
 				display: none;
@@ -8,20 +8,31 @@
 		</style>
 	</head>
 	<body>
+		<h1><u>L</u>ightning PayJ<u>oin</u></h1>
+		<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
+		<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
 		<div id="prepare">
-			<div>Wallet: <input type="text" id="wallet"></div>
-			<div>Maximum fee rate: <input type="text" id="feerate"> sat/vB</div>
+			<details>
+				<summary>
+					<label for="reserve" >Anchor Reserve Deposit (sats)</label>
+					<input type="text" name="wallet" id="wallet" value="10000">
+				</summary>
+				<p>New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.</p>
+			</details>
+			<div><label>Maximum fee rate (sats/vB)</label><input type="text" id="feerate" value="1"></div>
 			<div>
 				<table id="channels">
-					<tr><th>Node</th><th>Amount</th></tr>
+					<tr><th>Destination Node</th><th>Desired Channel Capacity (sats)</th></tr>
+					<tr><td><input type="text"></td><td><input type="text"></td></tr>
 				</table>
 			</div>
-			<div>
+			<div id="queue">
 			<button onclick="add_channel()">Add channel</button>
-			<button onclick="submit()">Transfer sats</button>
+			<button onclick="submit()">Generate payment request URI</button>
 			</div>
 		</div>
-		<div id="send" class="invisible">
+		<div id="queued" class="invisible">
+			<h2>PayJoin here to open these channels</h2>
 			<a href="" id="bip21"></a>
 		</div>
 		<script type="text/javascript">
@@ -54,8 +65,8 @@
 					var link = document.getElementById("bip21");
 					link.href = this.responseText;
 					link.innerHTML = this.responseText;
-					document.getElementById("prepare").classList.add("invisible");
-					document.getElementById("send").classList.remove("invisible");
+					document.getElementById("queue").classList.add("invisible");
+					document.getElementById("queued").classList.remove("invisible");
 				};
 			}
 		</script>
