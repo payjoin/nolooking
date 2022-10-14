@@ -1,4 +1,4 @@
-mod args;
+pub mod args;
 mod http;
 mod lnd;
 pub mod scheduler;
