@@ -12,7 +12,7 @@ test_paths = []
 
 [dependencies]
 bitcoin = { version = "0.28.1", features = ["use-serde"] }
-bip78 = { git = "https://github.com/dangould/rust-payjoin", branch = "receive-logic-v3", features = ["sender", "receiver" ] }
+bip78 = { git = "https://github.com/dangould/rust-payjoin", rev = "8d9b7d6", features = ["sender", "receiver" ] }
 url = "2.2.2"
 hyper = "0.14.9"
 tonic_lnd = "0.4.0"

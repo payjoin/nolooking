@@ -68,7 +68,7 @@ dependencies = [
 [[package]]
 name = "bip78"
 version = "0.2.0-preview"
-source = "git+https://github.com/dangould/rust-payjoin?branch=receive-logic-v3#ff17f1b3619eaba19c847af39bfb6b17c6c2c259"
+source = "git+https://github.com/dangould/rust-payjoin?rev=8d9b7d6#8d9b7d6ee5907b068a54bf65fd6ad5744c402756"
 dependencies = [
  "base64",
  "bip21",
