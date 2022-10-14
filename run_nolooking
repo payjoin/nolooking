@@ -1,0 +1,5 @@
+#!/bin/sh
+
+echo "Running nolooking"
+nolooking --bind-ip=0.0.0.0 --bind-port=4444 --lnd-address=https://lightning_lnd_1:$LND_GRPC_PORT --lnd-cert-path=$TLS_FILE --lnd-macaroon-path=$MACAROON_FILE --endpoint=http://$APP_HIDDEN_SERVICE
+echo "nolooking exited!"
