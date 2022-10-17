@@ -1,5 +1,6 @@
 #[cfg(test)]
 mod integration {
+    use std::thread::sleep;
     use std::time::Duration;
     use std::{
         env,
@@ -33,43 +34,62 @@ mod integration {
         let tmp_path = fixture.tmp_path();
 
         // wait for bitcoind to start and for lnd to be fully initialized with secrets
-        std::thread::sleep(std::time::Duration::from_secs(10));
 
         // sanity check
-        let bitcoin_rpc = Client::new(
-            "http://localhost:43782",
-            Auth::UserPass("ceiwHEbqWI83".to_string(), "DwubwWsoo3".to_string()),
-        )
-        .unwrap();
-        assert!(&bitcoin_rpc.get_best_block_hash().is_ok());
+        let timeout = 6;
+        let bitcoin_rpc = loop {
+            if --timeout < 0 {
+                panic!("can't connect to bitcoin rpc");
+            }
+            sleep(std::time::Duration::from_secs(1));
+            if let Ok(btcrpc) = Client::new("http://localhost:43782", Auth::UserPass("ceiwHEbqWI83".to_string(), "DwubwWsoo3".to_string())) {
+                match btcrpc.get_best_block_hash() {
+                    Ok(_) => break btcrpc,
+                    Err(e) => println!("Attempting to contact btcrpc: {}", e),
+                }
+            }
 
-        Command::new("docker")
-            .arg("cp")
-            .arg("compose-merchant_lnd-1:/root/.lnd/tls.cert")
-            .arg(format!("{}/merchant-tls.cert", tmp_path))
-            .output()
-            .expect("failed to copy tls.cert");
-        println!("copied merchant-tls.cert");
-
-        Command::new("docker")
-            .arg("cp")
-            .arg("compose-merchant_lnd-1:/data/chain/bitcoin/regtest/admin.macaroon")
-            .arg(format!("{}/merchant-admin.macaroon", &tmp_path))
-            .output()
-            .expect("failed to copy admin.macaroon");
-        println!("copied merchant-admin.macaroon");
+        };
 
         // merchant lnd loin configuration
         let address_str = "https://localhost:53281";
         let cert_file = format!("{}/merchant-tls.cert", &tmp_path).to_string();
         let macaroon_file = format!("{}/merchant-admin.macaroon", &tmp_path).to_string();
 
-        // Connecting to LND requires only address, cert file, and macaroon file
-        let mut merchant_client =
-            tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await.unwrap();
+        let timeout = 6;
+        let mut merchant_client = loop {
+            if --timeout < 0 {
+                panic!("can't connect to merchant_client");
+            }
+            sleep(std::time::Duration::from_secs(1));
+            
+            Command::new("docker")
+            .arg("cp")
+            .arg("compose-merchant_lnd-1:/root/.lnd/tls.cert")
+            .arg(format!("{}/merchant-tls.cert", tmp_path))
+            .output()
+            .expect("failed to copy tls.cert");
+            println!("copied merchant-tls.cert");
 
-        // Just test the node rpc
-        merchant_client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await.unwrap();
+            Command::new("docker")
+                .arg("cp")
+                .arg("compose-merchant_lnd-1:/data/chain/bitcoin/regtest/admin.macaroon")
+                .arg(format!("{}/merchant-admin.macaroon", &tmp_path))
+                .output()
+                .expect("failed to copy admin.macaroon");
+            println!("copied merchant-admin.macaroon");
+
+            // Connecting to LND requires only address, cert file, and macaroon file
+            let client =
+                tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await;
+                
+            if let Ok(mut client) = client {
+                match client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await {
+                    Ok(_) => break client,
+                    Err(e) => println!("Attempting to connect lnd: {}", e),
+                }
+            }
+        };
 
         // conf to merchant
         let endpoint: url::Url = "https://localhost:3010".parse().expect("not a valid Url");
@@ -144,7 +164,20 @@ mod integration {
         let bip21 = scheduler::format_bip21(address, pj.total_amount(), endpoint.clone());
         println!("{}", &bip21);
 
+        let loop_til_open_channel = tokio::spawn(async move {
+            let channel_update = peer_client.subscribe_channel_events(tonic_lnd::rpc::ChannelEventSubscription {});
+            let mut res = channel_update.await.unwrap().into_inner();
+            loop {
+                if let Ok(Some(channel_event)) = res.message().await {
+                    if channel_event.r#type() == tonic_lnd::rpc::channel_event_update::UpdateType::OpenChannel {
+                        break; 
+                    }
+                }
+            };
+        });
+
         let bind_addr = ([127, 0, 0, 1], 3000).into();
+        let loin_server = http::serve(scheduler, bind_addr, endpoint.clone());
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for loin server to run we'll make requests to a closed port
@@ -216,12 +249,9 @@ mod integration {
             let tx = bitcoin_rpc.finalize_psbt(&psbt, Some(true)).unwrap().hex.expect("incomplete psbt");
             bitcoin_rpc.send_raw_transaction(&tx).unwrap();
 
-            // Open channel on newly created payjoin
+            // Confirm the newly opene transaction in new blocks
             bitcoin_rpc.generate_to_address(8, &source_address).unwrap();
-            std::thread::sleep(Duration::from_secs(1));
         });
-
-        let loin_server = http::serve(scheduler, bind_addr, endpoint.clone());
 
         tokio::select! {
             _ = payjoin_channel_open => println!("payjoin-client completed first"),
@@ -229,12 +259,11 @@ mod integration {
             _ = tokio::time::sleep(std::time::Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
         };
 
-        let bal_res = peer_client.channel_balance(tonic_lnd::rpc::ChannelBalanceRequest::default()).await?;
-        println!("{:?}",bal_res);
-        let merchant_side_channel_balance = bal_res.into_inner().remote_balance.unwrap().sat;
-        println!("{:?}",merchant_side_channel_balance);
+        tokio::select! {
+            _ = loop_til_open_channel => println!("Channel opened!"),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(6)) => println!("Channel open upate listener timed out"),
+        };
 
-        assert!(merchant_side_channel_balance != 0);
         Ok(())
     }
     struct Fixture {
