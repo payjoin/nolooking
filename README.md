@@ -41,7 +41,7 @@ Good luck analyzing that!
 
 ### UX implications
 
-All this is possible without loin by [manually exchanging PSBTs](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md).
+All this is possible without nolooking by [manually exchanging PSBTs](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md).
 BIP78 turns that tedious back and forth into scanning/clicking one link followed by confirmation in the wallet.
 In other words, your grandmother will be able to somewhat privately open a bunch of channels for you, if she has a BIP78-capable wallet.
 
@@ -62,13 +62,13 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 0. You need Rust version 1.48 or higher to compile this.
 1. You need LND v14.2 or higher
-2. `cargo build [--features=test_paths]`. The test_paths feature will serve the `static/index.html` ui contained in this folder rather than one in `/usr/share/loin/static` in production.
+2. `cargo build [--features=test_paths]`. The test_paths feature will serve the `static/index.html` ui contained in this folder rather than one in `/usr/share/nolooking/static` in production.
 3. Setup reverse HTTP proxy with HTTPS forwarding to some port - e.g. 3000.
    You can do this in a few lines using [selfhost in Cryptoanarchy Debian Repository](https://github.com/debian-cryptoanarchy/cryptoanarchy-deb-repo-builder/blob/master/docs/user-level.md#selfhost). or [on MacOS](https://www.storyblok.com/faq/setup-dev-server-https-proxy)
-4. create a configuration file based on `config_spec.toml`. This is mine based on a [polar](https://lightningpolar.com/) lightning network simulator setup. `CONFIGURATION_FILE=loin.conf`:
+4. create a configuration file based on `config_spec.toml`. This is mine based on a [polar](https://lightningpolar.com/) lightning network simulator setup. `CONFIGURATION_FILE=nolooking.conf`:
 
    ```configuration
-   # loin.conf
+   # nolooking.conf
 
    bind_port=3000
    lnd_address="https://localhost:10004"

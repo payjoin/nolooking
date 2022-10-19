@@ -11,7 +11,7 @@ mod integration {
     use bitcoincore_rpc::{Auth, Client, RpcApi};
     use hyper::client::HttpConnector;
     use ln_types::P2PAddress;
-    use loin::{scheduler::{ScheduledChannel, ScheduledPayJoin, Scheduler}, lnd::LndClient, http};
+    use nolooking::{scheduler::{ScheduledChannel, ScheduledPayJoin, Scheduler}, lnd::LndClient, http};
     use std::collections::HashMap;
     use std::convert::TryFrom;
     use tempfile::tempdir;
@@ -58,7 +58,7 @@ mod integration {
             .expect("failed to copy admin.macaroon");
         println!("copied merchant-admin.macaroon");
 
-        // merchant lnd loin configuration
+        // merchant lnd nolooking configuration
         let address_str = "https://localhost:53281";
         let cert_file = format!("{}/merchant-tls.cert", &tmp_path).to_string();
         let macaroon_file = format!("{}/merchant-admin.macaroon", &tmp_path).to_string();
@@ -75,8 +75,8 @@ mod integration {
             "bind_port=3000\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
             &address_str, &cert_file, &macaroon_file
         );
-        let loin_conf = format!("{}/loin.conf", &tmp_path);
-        std::fs::write(&loin_conf, conf_string).expect("Unable to write loin.conf");
+        let nolooking_conf = format!("{}/nolooking.conf", &tmp_path);
+        std::fs::write(&nolooking_conf, conf_string).expect("Unable to write nolooking.conf");
 
         Command::new("docker")
             .arg("cp")
@@ -148,7 +148,7 @@ mod integration {
         let bind_addr = ([127, 0, 0, 1], 3000).into();
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
-            // if we don't wait for loin server to run we'll make requests to a closed port
+            // if we don't wait for nolooking server to run we'll make requests to a closed port
             std::thread::sleep(std::time::Duration::from_secs(2));
 
             let link = bip78::Uri::try_from(bip21).expect("bad bip78 uri");
@@ -222,11 +222,11 @@ mod integration {
             std::thread::sleep(Duration::from_secs(1));
         });
 
-        let loin_server = http::serve(scheduler, bind_addr);
+        let nolooking_server = http::serve(scheduler, bind_addr);
 
         tokio::select! {
             _ = payjoin_channel_open => println!("payjoin-client completed first"),
-            _ = loin_server => println!("loin server stopped first. This shouldn't happen"),
+            _ = nolooking_server => println!("nolooking server stopped first. This shouldn't happen"),
             _ = tokio::time::sleep(std::time::Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
         };
 
