@@ -77,9 +77,8 @@ In other words, your grandmother will be able to somewhat privately open a bunch
    ```
 
 5. `cargo run --features=test_paths -- --conf CONFIGURATION_FILE_PATH FEE_RATE DEST_NODE_URI AMOUNT_IN_SATS [DEST_NODE_URI AMOUNT_IN_SATS ...] [CHAIN_WALLET_AMOUNT_SATS]`
-6. Copy your lnd tls.cert & admin.macaroon to root dir
-7. Copy BIP21 from command line output and paste it into one of the supported wallets. I use [the payjoin crate client](https://github.com/Kixunil/payjoin/tree/master/payjoin-client) to make a payjoin right from regtest bitcoind.
-8. Confirm the transaction and move some sats over the new channel
+6. Copy BIP21 from command line output and paste it into one of the supported wallets. I use [the payjoin crate client](https://github.com/Kixunil/payjoin/tree/master/payjoin-client) to make a payjoin right from regtest bitcoind.
+7. Confirm the transaction and move some sats over the new channel
 
 Note: if `CHAIN_WALLET_AMOUNT_SATS` is present a single-sig output will be added to LND's internal wallet.
 A minimum internal wallet balance of 10,000 reserve sats per channel up to 100,000 sats is required for anchor commitments. This [can be automated](https://github.com/Kixunil/loin/issues/11) in the future.

@@ -1,70 +1,63 @@
 <html>
-  <head>
-    <title>NoLooking</title>
-    <style>
-      .invisible {
-        display: none;
-      }
-    </style>
-  </head>
-  <body>
-    <div id="prepare">
-      <div>Wallet: <input type="text" id="wallet" /></div>
-      <div>Maximum fee rate: <input type="text" id="feerate" /> sat/vB</div>
-      <div>
-        <table id="channels">
-          <tr>
-            <th>Node</th>
-            <th>Amount</th>
-          </tr>
-        </table>
-      </div>
-      <div>
-        <button onclick="add_channel()">Add channel</button>
-        <button onclick="submit()">Transfer sats</button>
-      </div>
-    </div>
-    <div id="send" class="invisible">
-      <a href="" id="bip21"></a>
-    </div>
-    <script type="text/javascript">
-      function add_channel() {
-        var table = document.getElementById("channels");
-        table.innerHTML =
-          table.innerHTML +
-          '<tr><td><input type="text"></td><td><input type="text"></td></tr>';
-      }
+	<head>
+		<title>Nolooking</title>
+		<style>
+			.invisible {
+				display: none;
+			}
+		</style>
+	</head>
+	<body>
+		<div id="prepare">
+			<div>Wallet: <input type="text" id="wallet"></div>
+			<div>Maximum fee rate: <input type="text" id="feerate"> sat/vB</div>
+			<div>
+				<table id="channels">
+					<tr><th>Node</th><th>Amount</th></tr>
+				</table>
+			</div>
+			<div>
+			<button onclick="add_channel()">Add channel</button>
+			<button onclick="submit()">Transfer sats</button>
+			</div>
+		</div>
+		<div id="send" class="invisible">
+			<a href="" id="bip21"></a>
+		</div>
+		<script type="text/javascript">
+			function add_channel() {
+				var table = document.getElementById("channels");
+				table.innerHTML = table.innerHTML + "<tr><td><input type=\"text\"></td><td><input type=\"text\"></td></tr>";
+			}
 
-      function submit() {
-        var wallet_amount = parseInt(document.getElementById("wallet").value);
-        var fee_rate = parseInt(document.getElementById("feerate").value);
-        var channels = [];
-        var table = document.getElementById("channels");
-        for (var i = 1; i < table.rows.length; i++) {
-          var row = table.rows[i];
-          var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
-          var amount = parseInt(
-            row.cells[1].getElementsByTagName("input")[0].value
-          );
-          channels.push({ node: node_addr, amount: amount });
-        }
-        request = {
-          wallet_amount: wallet_amount,
-          channels: channels,
-          fee_rate: fee_rate,
-        };
-        var xmlhttp = new XMLHttpRequest();
-        xmlhttp.open("POST", "/pj/schedule");
-        xmlhttp.setRequestHeader("Content-Type", "application/json");
-        xmlhttp.send(JSON.stringify(request));
-        xmlhttp.onload = function () {
-          var link = document.getElementById("bip21");
-          link.href = this.responseText;
-          link.innerHTML = this.responseText;
-          document.getElementById("prepare").classList.add("invisible");
-          document.getElementById("send").classList.remove("invisible");
-        };
-      }
-    </script>
-  </body>
+			function submit() {
+				var wallet_amount = parseInt(document.getElementById("wallet").value);
+				var fee_rate = parseInt(document.getElementById("feerate").value);
+				var channels = [];
+				var table = document.getElementById("channels");
+				for(var i = 1; i < table.rows.length; i++) {
+					var row = table.rows[i];
+					var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
+					var amount = parseInt(row.cells[1].getElementsByTagName("input")[0].value);
+					channels.push({ "node": node_addr, "amount": amount });
+				}
+				request = {
+					"wallet_amount": wallet_amount,
+					"channels": channels,
+					"fee_rate": fee_rate,
+				};
+				var xmlhttp = new XMLHttpRequest();
+				xmlhttp.open("POST", "/pj/schedule");
+				xmlhttp.setRequestHeader("Content-Type", "application/json");
+				xmlhttp.send(JSON.stringify(request));
+				xmlhttp.onload = function() {
+					var link = document.getElementById("bip21");
+					link.href = this.responseText;
+					link.innerHTML = this.responseText;
+					document.getElementById("prepare").classList.add("invisible");
+					document.getElementById("send").classList.remove("invisible");
+				};
+			}
+		</script>
+	</body>
 </html>
