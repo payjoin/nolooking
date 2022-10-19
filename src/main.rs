@@ -24,14 +24,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     if let Some(payjoin) = scheduled_pj {
         let address = scheduler.schedule_payjoin(&payjoin).await?;
-
-        // TODO: Don't hardcode pj endpoint
-        // * Optional cli flag or ENV for pj endpoint (in the case of port forwarding), otherwise
-        //      we should determine the bip21 string using `api::ServeOptions`
         println!(
-            "bitcoin:{}?amount={}&pj=https://localhost:3010/pj",
+            "bitcoin:{}?amount={}&pj={}/pj",
             address,
-            payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin)
+            payjoin.total_amount().to_string_in(bitcoin::Denomination::Bitcoin),
+            config.endpoint.unwrap_or("https://localhost:".to_string() + &config.bind_port.to_string())
         );
     }
 

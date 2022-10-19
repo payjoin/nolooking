@@ -1,5 +1,5 @@
 [general]
-env_prefix = "LOIN"
+env_prefix = "nolooking"
 conf_file_param = "conf"
 conf_dir_param = "conf_dir"
 doc = """
@@ -11,8 +11,14 @@ This server optimizes your channel opening from a remote wallet which supports P
 [[param]]
 name = "bind_port"
 type = "u16"
-doc = "Loin HTTP port to listen on"
+doc = "Nolooking HTTP port to listen on"
 optional = false
+
+[[param]]
+name = "endpoint"
+type = "String"
+doc = "Pay2Endpoint"
+optional = true
 
 [[param]]
 name = "lnd_address"
