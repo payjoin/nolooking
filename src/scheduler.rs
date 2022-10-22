@@ -6,7 +6,7 @@ use std::{
 };
 
 use bip78::receiver::{Proposal, UncheckedProposal};
-use bitcoin::consensus::Encodable;
+use bitcoin::{consensus::Encodable, Amount};
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Script, TxOut};
 use ln_types::P2PAddress;
@@ -357,6 +357,15 @@ pub fn calculate_fees(
     };
 
     bitcoin::Amount::from_sat(fee_rate * additional_vsize)
+}
+
+pub fn format_bip21(address: Address, total_amount: Amount, endpoint: url::Url) -> String {
+    format!(
+        "bitcoin:{}?amount={}&pj={}pj",
+        address,
+        total_amount.to_string_in(bitcoin::Denomination::Bitcoin),
+        endpoint.to_string()
+    )
 }
 
 #[derive(Debug)]

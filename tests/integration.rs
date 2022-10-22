@@ -11,6 +11,7 @@ mod integration {
     use bitcoincore_rpc::{Auth, Client, RpcApi};
     use hyper::client::HttpConnector;
     use ln_types::P2PAddress;
+    use loin::scheduler;
     use loin::{scheduler::{ScheduledChannel, ScheduledPayJoin, Scheduler}, lnd::LndClient, http};
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -71,9 +72,11 @@ mod integration {
         merchant_client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await.unwrap();
 
         // conf to merchant
+        let endpoint: url::Url = "https://localhost:3010".parse().expect("not a valid Url");
+        println!("{}", &endpoint.clone().to_string());
         let conf_string = format!(
-            "bind_port=3000\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
-            &address_str, &cert_file, &macaroon_file
+            "bind_port=3000\nendpoint=\"{}\"\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
+            &endpoint.clone().to_string(), &address_str, &cert_file, &macaroon_file
         );
         let loin_conf = format!("{}/loin.conf", &tmp_path);
         std::fs::write(&loin_conf, conf_string).expect("Unable to write loin.conf");
@@ -138,11 +141,7 @@ mod integration {
         let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap());
         let address = scheduler.schedule_payjoin(&pj).await.unwrap();
 
-        let bip21 = format!(
-            "bitcoin:{}?amount={}&pj=https://localhost:3010/pj",
-            address,
-            pj.total_amount().to_string_in(bitcoin::Denomination::Bitcoin)
-        );
+        let bip21 = scheduler::format_bip21(address, pj.total_amount(), endpoint.clone());
         println!("{}", &bip21);
 
         let bind_addr = ([127, 0, 0, 1], 3000).into();
@@ -222,7 +221,7 @@ mod integration {
             std::thread::sleep(Duration::from_secs(1));
         });
 
-        let loin_server = http::serve(scheduler, bind_addr);
+        let loin_server = http::serve(scheduler, bind_addr, endpoint.clone());
 
         tokio::select! {
             _ = payjoin_channel_open => println!("payjoin-client completed first"),

@@ -1,10 +1,9 @@
-use std::net::SocketAddr;
-
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 
-use crate::scheduler::{ScheduledPayJoin, Scheduler};
+use crate::scheduler::{ScheduledPayJoin, Scheduler, self};
+use std::net::SocketAddr;
 
 #[cfg(not(feature = "test_paths"))]
 const STATIC_DIR: &str = "/usr/share/loin/static";
@@ -13,11 +12,12 @@ const STATIC_DIR: &str = "/usr/share/loin/static";
 const STATIC_DIR: &str = "static";
 
 /// Serve requests to Schedule and execute PayJoins with given options.
-pub async fn serve(sched: Scheduler, bind_addr: SocketAddr) -> Result<(), hyper::Error> {
+pub async fn serve(sched: Scheduler, bind_addr: SocketAddr, endpoint: url::Url) -> Result<(), hyper::Error> {
     let new_service = make_service_fn(move |_| {
         let sched = sched.clone();
+        let endpoint = endpoint.clone();
         async move {
-            let handler = move |req| handle_web_req(sched.clone(), req);
+            let handler = move |req| handle_web_req(sched.clone(), req, endpoint.clone());
             Ok::<_, hyper::Error>(service_fn(handler))
         }
     });
@@ -30,6 +30,7 @@ pub async fn serve(sched: Scheduler, bind_addr: SocketAddr) -> Result<(), hyper:
 async fn handle_web_req(
     scheduler: Scheduler,
     req: Request<Body>,
+    endpoint: url::Url 
 ) -> Result<Response<Body>, hyper::Error> {
     use std::path::Path;
 
@@ -77,15 +78,7 @@ async fn handle_web_req(
 
             let address = scheduler.schedule_payjoin(&request).await.unwrap();
             let total_amount = request.total_amount();
-
-            // TODO: Don't hardcode pj endpoint
-            // * Optional cli flag or ENV for pj endpoint (in the case of port forwarding), otherwise
-            //      we should determine the bip21 string using `api::ServeOptions`
-            let uri = format!(
-                "bitcoin:{}?amount={}&pj=https://localhost:3010/pj",
-                address,
-                total_amount.to_string_in(bitcoin::Denomination::Bitcoin)
-            );
+            let uri = scheduler::format_bip21(address, total_amount, endpoint);
             let mut response = Response::new(Body::from(uri));
             response
                 .headers_mut()
