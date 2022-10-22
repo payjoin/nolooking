@@ -15,6 +15,12 @@ doc = "Loin HTTP port to listen on"
 optional = false
 
 [[param]]
+name = "endpoint"
+type = "String"
+doc = "Endpoint to negotiate Pay-to-Endpoint p2ep. Used in bip21 URI as described in bip78: pj=<endpoint>"
+optional = false
+
+[[param]]
 name = "lnd_address"
 type = "String"
 doc = "LND address in the form of https://hostname:port - hostname may be localhost"

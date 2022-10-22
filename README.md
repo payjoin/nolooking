@@ -71,6 +71,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
    # loin.conf
 
    bind_port=3000
+   endpoint="https://localhost:3010"
    lnd_address="https://localhost:10004"
    lnd_cert_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/tls.cert"
    lnd_macaroon_path="/Users/dan/.polar/networks/1/volumes/lnd/dave/data/chain/bitcoin/regtest/admin.macaroon"
