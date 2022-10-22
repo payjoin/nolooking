@@ -1,63 +1,185 @@
 <html>
-	<head>
-		<title>Loin</title>
-		<style>
-			.invisible {
-				display: none;
-			}
-		</style>
-	</head>
-	<body>
-		<div id="prepare">
-			<div>Wallet: <input type="text" id="wallet"></div>
-			<div>Maximum fee rate: <input type="text" id="feerate"> sat/vB</div>
-			<div>
-				<table id="channels">
-					<tr><th>Node</th><th>Amount</th></tr>
-				</table>
-			</div>
-			<div>
-			<button onclick="add_channel()">Add channel</button>
-			<button onclick="submit()">Transfer sats</button>
-			</div>
-		</div>
-		<div id="send" class="invisible">
-			<a href="" id="bip21"></a>
-		</div>
-		<script type="text/javascript">
-			function add_channel() {
-				var table = document.getElementById("channels");
-				table.innerHTML = table.innerHTML + "<tr><td><input type=\"text\"></td><td><input type=\"text\"></td></tr>";
-			}
+  <head>
+    <title>Loin</title>
+    <link
+      href="https://cdn.jsdelivr.net/npm/bootstrap@5.2.2/dist/css/bootstrap.min.css"
+      rel="stylesheet"
+      integrity="sha384-Zenh87qX5JnK2Jl0vWa8Ck2rdkQ2Bzep5IDxbcnCeuOxjzrPF/et3URy9Bv1WTRi"
+      crossorigin="anonymous"
+    />
+    <style>
+      body {
+        background: conic-gradient(
+          from 0deg at 0% 0%,
+          rgb(5, 0, 2),
+          rgb(0, 56, 73)
+        );
+        color: rgb(220, 220, 220);
+        text-align: left;
+        width: 100%;
+      }
 
-			function submit() {
-				var wallet_amount = parseInt(document.getElementById("wallet").value);
-				var fee_rate = parseInt(document.getElementById("feerate").value);
-				var channels = [];
-				var table = document.getElementById("channels");
-				for(var i = 1; i < table.rows.length; i++) {
-					var row = table.rows[i];
-					var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
-					var amount = parseInt(row.cells[1].getElementsByTagName("input")[0].value);
-					channels.push({ "node": node_addr, "amount": amount });
-				}
-				request = {
-					"wallet_amount": wallet_amount,
-					"channels": channels,
-					"fee_rate": fee_rate,
-				};
-				var xmlhttp = new XMLHttpRequest();
-				xmlhttp.open("POST", "/pj/schedule");
-				xmlhttp.setRequestHeader("Content-Type", "application/json");
-				xmlhttp.send(JSON.stringify(request));
-				xmlhttp.onload = function() {
-					var link = document.getElementById("bip21");
-					link.href = this.responseText;
-					link.innerHTML = this.responseText;
-					document.getElementById("prepare").classList.add("invisible");
-					document.getElementById("send").classList.remove("invisible");
-				};
-			}
-		</script>
-	</body>
+      h3 {
+        font-weight: 600;
+        background-image: conic-gradient(
+          from 0deg at 0% 0%,
+          rgb(255, 174, 0),
+          rgb(0, 255, 242)
+        );
+        color: transparent;
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+      a {
+        color: #0098ac;
+        font-weight: 600;
+        font-family: Lucida Console, Liberation Mono, DejaVu Sans Mono,
+          Bitstream Vera Sans Mono, Courier New;
+        text-decoration: underline;
+        text-decoration-thickness: 1px;
+        text-decoration-line: underline;
+        text-decoration-style: double;
+      }
+      p {
+        font-size: 1.5em;
+        font-weight: 400;
+        background-image: conic-gradient(
+          from 0deg at 0% 0%,
+          rgb(175, 26, 26),
+          rgba(208, 255, 0, 0.986)
+        );
+        color: transparent;
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+
+      label {
+        font-weight: 600;
+        background-image: conic-gradient(
+          from 0deg at 0% 0%,
+          rgb(255, 174, 0),
+          rgb(0, 255, 242)
+        );
+        color: transparent;
+        background-clip: text;
+        -webkit-background-clip: text;
+      }
+      /* label {
+              color: rgb(166, 219, 18);
+            } */
+      .wrapper {
+        max-width: 60%;
+        margin: 0 auto;
+      }
+      button {
+        color: #fff;
+        background-color: #17a2b8;
+        border-color: #17a2b8;
+        padding: 10px;
+        margin: 10px 0px 0px 0px;
+      }
+      .send {
+        text-align: center;
+        padding: 25px;
+      }
+      .invisible {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrapper">
+      <img src="https://nolooking.chaincase.app/banner.gif" />
+      <h3>
+        Open a batch of lightning channels with one
+        <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki"
+          >BIP 78</a
+        >
+        <a
+          href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase"
+          >P2EP PayJoin
+        </a>
+      </h3>
+      <p>Halloween-quality pre-alpha software. A lil spooky!</p>
+      <div id="prepare">
+        <div class="form-group">
+          <label for="exampleInputEmail1">On-chain deposit</label>
+          <input
+            id="wallet"
+            type="text"
+            class="form-control"
+            placeholder="Funding Amount"
+          />
+        </div>
+        <div class="form-group">
+          <label for="exampleInputPassword1">Maximum fee rate</label>
+          <input
+            id="feerate"
+            type="text"
+            class="form-control"
+            placeholder="sat/vB"
+          />
+        </div>
+        <div>
+          <table id="channels">
+            <tr>
+              <th>Node</th>
+              <th>Amount</th>
+            </tr>
+            <tr>
+              <td><input type="text" /></td>
+              <td><input type="text" /></td>
+            </tr>
+          </table>
+        </div>
+        <div>
+          <button onclick="add_channel()">Add channel</button>
+          <button onclick="submit()">Transfer sats</button>
+        </div>
+      </div>
+      <div id="send" class="invisible">
+        <a href="#" id="bip21"></a>
+      </div>
+    </div>
+
+    <script type="text/javascript">
+      function add_channel() {
+        var table = document.getElementById("channels");
+        table.innerHTML =
+          table.innerHTML +
+          '<tr><td><input type="text"></td><td><input type="text"></td></tr>';
+      }
+
+      function submit() {
+        var wallet_amount = parseInt(document.getElementById("wallet").value);
+        var fee_rate = parseInt(document.getElementById("feerate").value);
+        var channels = [];
+        var table = document.getElementById("channels");
+        for (var i = 1; i < table.rows.length; i++) {
+          var row = table.rows[i];
+          var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
+          var amount = parseInt(
+            row.cells[1].getElementsByTagName("input")[0].value
+          );
+          channels.push({ node: node_addr, amount: amount });
+        }
+        request = {
+          wallet_amount: wallet_amount,
+          channels: channels,
+          fee_rate: fee_rate,
+        };
+        var xmlhttp = new XMLHttpRequest();
+        xmlhttp.open("POST", "/pj/schedule");
+        xmlhttp.setRequestHeader("Content-Type", "application/json");
+        xmlhttp.send(JSON.stringify(request));
+        xmlhttp.onload = function () {
+          var link = document.getElementById("bip21");
+          link.href = this.responseText;
+          link.innerHTML = this.responseText;
+          document.getElementById("prepare").classList.add("invisible");
+          document.getElementById("send").classList.remove("invisible");
+        };
+      }
+    </script>
+  </body>
 </html>
