@@ -6,9 +6,9 @@ services:
     volumes:
       - "./nginx/reverse-https-proxy.conf:/etc/nginx/nginx.conf"
       - "./nginx/ssl:/etc/ssl"
-    expose:
-      - "3010"
-      - "3000"
+    ports:
+      - "3010:3010"
+      - "3000:3000"
 
   bitcoind:
     restart: unless-stopped
