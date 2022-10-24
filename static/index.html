@@ -62,34 +62,34 @@
 				table.innerHTML = table.innerHTML + "<tr><td><input type=\"text\"></td><td><input type=\"text\"></td></tr>";
 			}
 
-			function submit() {
-				var wallet_amount = parseInt(document.getElementById("wallet").value);
-				var fee_rate = parseInt(document.getElementById("feerate").value);
-				var channels = [];
-				var table = document.getElementById("channels");
-				for(var i = 1; i < table.rows.length; i++) {
-					var row = table.rows[i];
-					var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
-					var amount = parseInt(row.cells[1].getElementsByTagName("input")[0].value);
-					channels.push({ "node": node_addr, "amount": amount });
-				}
-				request = {
-					"wallet_amount": wallet_amount,
-					"channels": channels,
-					"fee_rate": fee_rate,
+			document.querySelector("form").addEventListener("submit", async (event) => {
+				event.preventDefault();
+				let form = event.currentTarget;
+				let resource = form.action;
+				let options = {
+					method: form.method,
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+					// encode FormData as x-www-form-urlencoded
+					body: new URLSearchParams(new FormData(form)).toString()
 				};
-				var xmlhttp = new XMLHttpRequest();
-				xmlhttp.open("POST", "/pj/schedule");
-				xmlhttp.setRequestHeader("Content-Type", "application/json");
-				xmlhttp.send(JSON.stringify(request));
-				xmlhttp.onload = function() {
-					var link = document.getElementById("bip21");
-					link.href = this.responseText;
-					link.innerHTML = this.responseText;
-					document.getElementById("queue").classList.add("invisible");
-					document.getElementById("queued").classList.remove("invisible");
-				};
-			}
+
+				await fetch(resource, options)
+					.then(async (r) => {
+						if (!r.ok)
+							throw new Error('Something went wrong.');
+
+						let link = document.getElementById("bip21");
+						let bip21 = await r.text();
+						link.href = bip21;
+						link.innerHTML = bip21;
+						document.getElementById("queue").classList.add("invisible");
+						document.getElementById("queued").classList.remove("invisible");
+					})
+					.catch((err) => {
+						alert(err);
+					});
+				return false; // don't trigger form action attribute, we submitted through js
+			});
 		</script>
 	</body>
 </html>
