@@ -1,6 +1,8 @@
 <html>
 	<head>
-		<title>Lightning PayJoin</title>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-   scale=1.0">
+		<title>NOLOOKING Lightning PayJoin</title>
 		<style>
 			.invisible {
 				display: none;
@@ -8,33 +10,52 @@
 		</style>
 	</head>
 	<body>
-		<h1><u>L</u>ightning PayJ<u>oin</u></h1>
-		<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
-		<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
-		<div id="prepare">
-			<details>
-				<summary>
-					<label for="reserve" >Anchor Reserve Deposit (sats)</label>
-					<input type="text" name="wallet" id="wallet" value="10000">
-				</summary>
-				<p>New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.</p>
-			</details>
-			<div><label>Maximum fee rate (sats/vB)</label><input type="text" id="feerate" value="1"></div>
+		<header>
+			<h1><u>L</u>ightning PayJ<u>oin</u></h1>
+			<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
+		</header>
+		<main>
+			<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
+			<form action="/pj/schedule" method="post" enctype="application/x-www-form-urlencoded">
+				<div>
+					<label for="reserve" >
+					<details>
+						<summary>
+							Anchor Reserve Deposit (sats)</label>
+						</summary>
+						New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
+					</details>
+					<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1">
+					<datalist id="defaultReserveSats">
+						<option value="10000"></option>
+					</datalist>
+				</label>
+			</div>
 			<div>
-				<table id="channels">
-					<tr><th>Destination Node</th><th>Desired Channel Capacity (sats)</th></tr>
-					<tr><td><input type="text"></td><td><input type="text"></td></tr>
-				</table>
+				<label>
+					Maximum fee rate (sats/vB)
+					<input type="text" name="fee_rate" id="feerate" value="1">
+				</label>
 			</div>
-			<div id="queue">
-			<button onclick="add_channel()">Add channel</button>
-			<button onclick="submit()">Generate payment request URI</button>
-			</div>
-		</div>
-		<div id="queued" class="invisible">
-			<h2>PayJoin here to open these channels</h2>
-			<a href="" id="bip21"></a>
-		</div>
+				<fieldset>
+					<legend>Channels to Open</legend>
+					<!-- channels -->
+					<table id="channels">
+						<tr><th>Destination Node</th><th>Desired Channel Capacity (sats)</th></tr>
+						<tr><td><input type="text" name="channels[0][node]"></td><td><input type="number" name="channels[0][amount]" min="20000" step="1"></td></tr><!-- LND enforces minimum 20k sats channel -->
+					</table>
+					<button type="button" onclick="add_channel()">Add channel</button>
+				</fieldset>
+
+				<div id="queue">
+				<button type="submit">Generate payment request URI</button>
+				</div>
+			</form>
+			<output id="queued" class="invisible">
+				<h2>PayJoin here to open these channels</h2>
+				<a href="" id="bip21"></a>
+			</output>
+		</main>
 		<script type="text/javascript">
 			function add_channel() {
 				var table = document.getElementById("channels");

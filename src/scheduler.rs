@@ -15,7 +15,7 @@ use tonic_lnd::rpc::OpenChannelRequest;
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
 
-#[derive(Clone, serde_derive::Deserialize)]
+#[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledChannel {
     pub(crate) node: P2PAddress,
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
@@ -37,7 +37,7 @@ impl ScheduledChannel {
     }
 }
 
-#[derive(Clone, serde_derive::Deserialize)]
+#[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledPayJoin {
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     wallet_amount: bitcoin::Amount,
