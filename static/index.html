@@ -1,7 +1,9 @@
 <html>
 	<head>
 		<meta charset="UTF-8">
-		<meta name="viewport" content="width=device-width, initial-   scale=1.0">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/selekkt-skelet@latest/css/skelet.min.css">
 		<title>NOLOOKING Lightning PayJoin</title>
 		<style>
 			.invisible {
@@ -9,57 +11,57 @@
 			}
 		</style>
 	</head>
-	<body>
-		<header>
+	<body dark-mode>
+		<header class="center">
 			<h1><u>L</u>ightning PayJ<u>oin</u></h1>
 			<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
 		</header>
-		<main>
-			<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
-			<form action="/pj/schedule" method="post" enctype="application/x-www-form-urlencoded">
+		<main lass="center-axyz">
+			<form action="/pj/schedule" method="post" enctype="application/x-www-form-urlencoded"
+				style="max-width: 750px; margin:0 auto; padding:2rem" x-flex direction="column">
+				<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
 				<div>
-					<label for="reserve" >
-					<details>
-						<summary>
-							Anchor Reserve Deposit (sats)</label>
-						</summary>
-						New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
-					</details>
+					<label for="reserve">
+						<details>
+							<summary>
+								Anchor Reserve Deposit (sats)</label>
+							</summary>
+							New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
+						</details>
+					</label>
 					<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1">
 					<datalist id="defaultReserveSats">
 						<option value="10000"></option>
 					</datalist>
-				</label>
-			</div>
-			<div>
-				<label>
-					Maximum fee rate (sats/vB)
+				</div>
+				<div>
+					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
 					<input type="text" name="fee_rate" id="feerate" value="1">
-				</label>
-			</div>
+				</div>
 				<fieldset>
 					<legend>Channels to Open</legend>
 					<!-- channels -->
-					<table id="channels">
-						<tr><th>Destination Node</th><th>Desired Channel Capacity (sats)</th></tr>
-						<tr><td><input type="text" name="channels[0][node]"></td><td><input type="number" name="channels[0][amount]" min="20000" step="1"></td></tr><!-- LND enforces minimum 20k sats channel -->
-					</table>
-					<button type="button" onclick="add_channel()">Add channel</button>
+					<x-grid columns=2 id="channels">
+						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
+						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" span=1><input type="number" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span=1><!-- LND enforces minimum 20k sats channel -->
+						<button type="button" onclick="add_channel()" order=1>Add channel</button>
+					</x-grid>
 				</fieldset>
-
 				<div id="queue">
-				<button type="submit">Generate payment request URI</button>
+					<button class="is-large" type="submit">Generate payment request URI</button>
 				</div>
+				<output id="queued" class="invisible">
+					<h2>PayJoin here to open these channels</h2>
+					<a href="" id="bip21"></a>
+				</output>
 			</form>
-			<output id="queued" class="invisible">
-				<h2>PayJoin here to open these channels</h2>
-				<a href="" id="bip21"></a>
-			</output>
+
 		</main>
 		<script type="text/javascript">
+			var channels = 1;
 			function add_channel() {
 				var table = document.getElementById("channels");
-				table.innerHTML = table.innerHTML + "<tr><td><input type=\"text\"></td><td><input type=\"text\"></td></tr>";
+				table.innerHTML = table.innerHTML + `<input type="text" name="channels[${++channels}][node]" aria-labelledby="destinationLabel" span="1"><input type="number" name="channels[${channels}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1">`;
 			}
 
 			document.querySelector("form").addEventListener("submit", async (event) => {
