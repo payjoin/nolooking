@@ -41,7 +41,7 @@ mod integration {
             if --timeout < 0 {
                 panic!("can't connect to bitcoin rpc");
             }
-            sleep(std::time::Duration::from_secs(1));
+            sleep(Duration::from_secs(1));
             if let Ok(btcrpc) = Client::new("http://localhost:43782", Auth::UserPass("ceiwHEbqWI83".to_string(), "DwubwWsoo3".to_string())) {
                 match btcrpc.get_best_block_hash() {
                     Ok(_) => break btcrpc,
@@ -61,7 +61,7 @@ mod integration {
             if --timeout < 0 {
                 panic!("can't connect to merchant_client");
             }
-            sleep(std::time::Duration::from_secs(1));
+            sleep(Duration::from_secs(1));
             
             Command::new("docker")
             .arg("cp")
@@ -132,7 +132,7 @@ mod integration {
 
         let source_address = bitcoin_rpc.get_new_address(None, None).unwrap();
         bitcoin_rpc.generate_to_address(101, &source_address).unwrap();
-        std::thread::sleep(std::time::Duration::from_secs(5));
+        std::thread::sleep(Duration::from_secs(5));
         println!("SLEPT");
         // connect one to the next
         let connected = merchant_client
@@ -181,7 +181,8 @@ mod integration {
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for loin server to run we'll make requests to a closed port
-            std::thread::sleep(std::time::Duration::from_secs(2));
+            std::thread::sleep(Duration::from_secs(2));
+            // TODO loop on ping 3000 until it the server is live
 
             let link = bip78::Uri::try_from(bip21).expect("bad bip78 uri");
 
@@ -256,12 +257,12 @@ mod integration {
         tokio::select! {
             _ = payjoin_channel_open => println!("payjoin-client completed first"),
             _ = loin_server => println!("loin server stopped first. This shouldn't happen"),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
+            _ = tokio::time::sleep(Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
         };
 
         tokio::select! {
             _ = loop_til_open_channel => println!("Channel opened!"),
-            _ = tokio::time::sleep(std::time::Duration::from_secs(6)) => println!("Channel open upate listener timed out"),
+            _ = tokio::time::sleep(Duration::from_secs(6)) => println!("Channel open upate listener timed out"),
         };
 
         Ok(())
