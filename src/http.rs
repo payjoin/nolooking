@@ -6,7 +6,7 @@ use crate::scheduler::{ScheduledPayJoin, Scheduler, self};
 use std::net::SocketAddr;
 
 #[cfg(not(feature = "test_paths"))]
-const STATIC_DIR: &str = "/usr/share/loin/static";
+const STATIC_DIR: &str = "/usr/share/nolooking/static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
