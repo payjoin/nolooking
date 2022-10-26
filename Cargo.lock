@@ -560,32 +560,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "loin"
-version = "0.1.0"
-dependencies = [
- "base64",
- "bip78",
- "bitcoin",
- "bitcoincore-rpc",
- "configure_me",
- "configure_me_codegen",
- "hyper",
- "hyper-tls",
- "ln-types",
- "rand",
- "rcgen",
- "serde",
- "serde_derive",
- "serde_json",
- "tempfile",
- "tokio",
- "tokio-native-tls",
- "tonic",
- "tonic_lnd",
- "url",
-]
-
-[[package]]
 name = "man"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -634,6 +608,32 @@ dependencies = [
  "security-framework",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "nolooking"
+version = "0.1.0"
+dependencies = [
+ "base64",
+ "bip78",
+ "bitcoin",
+ "bitcoincore-rpc",
+ "configure_me",
+ "configure_me_codegen",
+ "hyper",
+ "hyper-tls",
+ "ln-types",
+ "rand",
+ "rcgen",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "tokio-native-tls",
+ "tonic",
+ "tonic_lnd",
+ "url",
 ]
 
 [[package]]

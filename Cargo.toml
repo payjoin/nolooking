@@ -1,5 +1,5 @@
 [package]
-name = "loin"
+name = "nolooking"
 version = "0.1.0"
 authors = ["Dan Gould <d@ngould.dev>", "Martin Habovstiak <martin.habovstiak@gmail.com>"]
 exclude = ["./tests/compose"]
