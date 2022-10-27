@@ -68,6 +68,10 @@ main form {
     padding: 2rem
 }
 
+#qrcode {
+    margin: 2rem;
+}
+
 fieldset {
     background-color: black;
 }

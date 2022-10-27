@@ -4,7 +4,9 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/selekkt-skelet@latest/css/skelet.min.css">
+		<!-- having trouble getting the right path on both umbrel and local.. -->
 		<link rel="stylesheet" href="/pj/static/style.css">
+		<link rel="stylesheet" href="style.css">
 		<title>nolooking // Lightning PayJoin</title>
 	</head>
 	<body dark-mode>
@@ -56,6 +58,7 @@
 				</div>
 				<output id="queued" class="invisible">
 					<h2>PayJoin here to open these channels</h2>
+					<div id="qrcode" class="center-axyz"></div>
 					<a href="" id="bip21"></a>
 					<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
 				</output>
@@ -86,14 +89,17 @@
 
 				await fetch(resource, options)
 					.then(async (r) => {
+						console.debug(r);
 						if (!r.ok)
-							console.log(r);
 							throw new Error('Something went wrong.');
 
 						let link = document.getElementById("bip21");
 						let bip21 = await r.text();
 						link.href = bip21;
 						link.innerHTML = bip21;
+
+						var address = bip21.split("bitcoin:")[1].split("?")[0];
+						document.getElementById("qrcode").innerHTML = `<img src="pj/static/qr_codes/${address}.png" width="256px" />`;
 						document.getElementById("queue").classList.add("invisible");
 						document.getElementById("queued").classList.remove("invisible");
 					})
