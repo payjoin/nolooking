@@ -1,15 +1,18 @@
+use std::convert::TryFrom;
 use std::fmt;
+use std::num::TryFromIntError;
 use std::sync::Arc;
 
 use bitcoin::consensus::Decodable;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::Address;
+use bitcoin::{Address, Amount};
 use ln_types::P2PAddress;
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
 use tonic_lnd::lnrpc::{
     FundingPsbtVerify, FundingTransitionMsg, OpenChannelRequest, OpenStatusUpdate,
 };
+use tonic_lnd::walletrpc::RequiredReserveRequest;
 
 use crate::scheduler::ChannelId;
 
@@ -159,6 +162,20 @@ impl LndClient {
         client.lightning().funding_state_step(req).await?;
         Ok(())
     }
+
+    pub async fn required_reserve(
+        &self,
+        additional_public_channels: u32,
+    ) -> Result<Amount, LndError> {
+        let client = &mut *self.0.lock().await;
+        let res = client
+            .wallet()
+            .required_reserve(RequiredReserveRequest { additional_public_channels })
+            .await?;
+        let amount = u64::try_from(res.get_ref().required_reserve)
+            .map_err(LndError::ParseReserveAsSatFailed)?;
+        Ok(Amount::from_sat(amount))
+    }
 }
 
 #[derive(Debug)]
@@ -167,8 +184,9 @@ pub enum LndError {
     ConnectError(tonic_lnd::ConnectError),
     Decode(bitcoin::consensus::encode::Error),
     ParseBitcoinAddressFailed(bitcoin::util::address::Error),
+    ParseReserveAsSatFailed(TryFromIntError),
     VersionRequestFailed(tonic_lnd::Error),
-    UnexpectedUpdate(tonic_lnd::rpc::open_status_update::Update),
+    UnexpectedUpdate(tonic_lnd::lnrpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
     LNDTooOld(String),
 }
@@ -180,6 +198,7 @@ impl fmt::Display for LndError {
             LndError::ConnectError(e) => e.fmt(f),
             LndError::Decode(e) => e.fmt(f),
             LndError::ParseBitcoinAddressFailed(e) => e.fmt(f),
+            LndError::ParseReserveAsSatFailed(err) => err.fmt(f),
             LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
             LndError::UnexpectedUpdate(e) => write!(f, "Unexpected channel update {:?}", e),
             LndError::ParseVersionFailed { version, error: _ } => {
@@ -201,6 +220,7 @@ impl std::error::Error for LndError {
             LndError::ConnectError(e) => Some(e),
             LndError::Decode(e) => Some(e),
             LndError::ParseBitcoinAddressFailed(e) => Some(e),
+            LndError::ParseReserveAsSatFailed(_) => None,
             LndError::VersionRequestFailed(e) => Some(e),
             Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),
