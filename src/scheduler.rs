@@ -8,7 +8,7 @@ use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut};
 use ln_types::P2PAddress;
-use tonic_lnd::rpc::OpenChannelRequest;
+use tonic_lnd::lnrpc::OpenChannelRequest;
 
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
@@ -154,13 +154,13 @@ impl ScheduledPayJoin {
                 let node_addr = chan.node.clone();
                 let chan_id = temporary_channel_id();
 
-                let psbt_shim = tonic_lnd::rpc::PsbtShim {
+                let psbt_shim = tonic_lnd::lnrpc::PsbtShim {
                     pending_chan_id: chan_id.into(),
                     base_psbt: Vec::new(),
                     no_publish: true,
                 };
-                let funding_shim = tonic_lnd::rpc::funding_shim::Shim::PsbtShim(psbt_shim);
-                let funding_shim = tonic_lnd::rpc::FundingShim { shim: Some(funding_shim) };
+                let funding_shim = tonic_lnd::lnrpc::funding_shim::Shim::PsbtShim(psbt_shim);
+                let funding_shim = tonic_lnd::lnrpc::FundingShim { shim: Some(funding_shim) };
 
                 let req = OpenChannelRequest {
                     node_pubkey: chan.node.node_id.to_vec(),

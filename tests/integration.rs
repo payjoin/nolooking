@@ -18,7 +18,7 @@ mod integration {
     use nolooking::{http, scheduler};
     use tempfile::tempdir;
     use tokio_native_tls::native_tls;
-    use tonic_lnd::rpc::{ConnectPeerRequest, LightningAddress};
+    use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn std::error::Error>> {
@@ -86,7 +86,7 @@ mod integration {
             let client = tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await;
 
             if let Ok(mut client) = client {
-                match client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await {
+                match client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await {
                     Ok(_) => break client,
                     Err(e) => println!("Attempting to connect lnd: {}", e),
                 }
@@ -127,7 +127,8 @@ mod integration {
         let mut peer_client =
             tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await.unwrap();
 
-        let info = peer_client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await.unwrap();
+        let info =
+            peer_client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await.unwrap();
 
         let peer_id_pubkey = info.into_inner().identity_pubkey;
         println!("peer_id_pubkey: {:#?}", peer_id_pubkey);
@@ -138,6 +139,7 @@ mod integration {
         println!("SLEPT");
         // connect one to the next
         let connected = merchant_client
+            .lightning()
             .connect_peer(ConnectPeerRequest {
                 addr: Some(LightningAddress {
                     pubkey: peer_id_pubkey.clone(),
@@ -167,13 +169,14 @@ mod integration {
         println!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
-            let channel_update =
-                peer_client.subscribe_channel_events(tonic_lnd::rpc::ChannelEventSubscription {});
+            let channel_update = peer_client
+                .lightning()
+                .subscribe_channel_events(tonic_lnd::lnrpc::ChannelEventSubscription {});
             let mut res = channel_update.await.unwrap().into_inner();
             loop {
                 if let Ok(Some(channel_event)) = res.message().await {
                     if channel_event.r#type()
-                        == tonic_lnd::rpc::channel_event_update::UpdateType::OpenChannel
+                        == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel
                     {
                         break;
                     }
