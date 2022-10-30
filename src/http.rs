@@ -73,8 +73,9 @@ async fn handle_web_req(
 
         (&Method::POST, "/pj/schedule") => {
             let bytes = hyper::body::to_bytes(req.into_body()).await?;
-            let request =
-                serde_json::from_slice::<ScheduledPayJoin>(&bytes).expect("invalid request");
+            // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
+            let conf = serde_qs::Config::new(2, false);
+            let request: ScheduledPayJoin = conf.deserialize_bytes(&bytes).expect("invalid request");
 
             let address = scheduler.schedule_payjoin(&request).await.unwrap();
             let total_amount = request.total_amount();

@@ -1,74 +1,97 @@
 <html>
 	<head>
-		<title>Lightning PayJoin</title>
+		<meta charset="UTF-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0">
+		<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/selekkt-skelet@latest/css/skelet.min.css">
+		<title>NOLOOKING Lightning PayJoin</title>
 		<style>
 			.invisible {
 				display: none;
 			}
 		</style>
 	</head>
-	<body>
-		<h1><u>L</u>ightning PayJ<u>oin</u></h1>
-		<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
-		<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
-		<div id="prepare">
-			<details>
-				<summary>
-					<label for="reserve" >Anchor Reserve Deposit (sats)</label>
-					<input type="text" name="wallet" id="wallet" value="10000">
-				</summary>
-				<p>New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.</p>
-			</details>
-			<div><label>Maximum fee rate (sats/vB)</label><input type="text" id="feerate" value="1"></div>
-			<div>
-				<table id="channels">
-					<tr><th>Destination Node</th><th>Desired Channel Capacity (sats)</th></tr>
-					<tr><td><input type="text"></td><td><input type="text"></td></tr>
-				</table>
-			</div>
-			<div id="queue">
-			<button onclick="add_channel()">Add channel</button>
-			<button onclick="submit()">Generate payment request URI</button>
-			</div>
-		</div>
-		<div id="queued" class="invisible">
-			<h2>PayJoin here to open these channels</h2>
-			<a href="" id="bip21"></a>
-		</div>
+	<body dark-mode>
+		<header class="center">
+			<h1><u>L</u>ightning PayJ<u>oin</u></h1>
+			<h2>Queue a batch of lightning channels to open with one <a href="https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki" target="blank">BIP 78</a> <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoin</h2>
+		</header>
+		<main lass="center-axyz">
+			<form action="/pj/schedule" method="post" enctype="application/x-www-form-urlencoded"
+				style="max-width: 750px; margin:0 auto; padding:2rem" x-flex direction="column">
+				<p style="color: orange">Halloween-quality pre-alpha software. A lil spooky!</p>
+				<div>
+					<label for="reserve">
+						<details>
+							<summary>
+								Anchor Reserve Deposit (sats)</label>
+							</summary>
+							New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
+						</details>
+					</label>
+					<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1">
+					<datalist id="defaultReserveSats">
+						<option value="10000"></option>
+					</datalist>
+				</div>
+				<div>
+					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
+					<input type="text" name="fee_rate" id="feerate" value="1">
+				</div>
+				<fieldset>
+					<legend>Channels to Open</legend>
+					<!-- channels -->
+					<x-grid columns=2 id="channels">
+						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
+						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" span=1><input type="number" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span=1><!-- LND enforces minimum 20k sats channel -->
+						<button type="button" onclick="add_channel()" order=1>Add channel</button>
+					</x-grid>
+				</fieldset>
+				<div id="queue">
+					<button class="is-large" type="submit">Generate payment request URI</button>
+				</div>
+				<output id="queued" class="invisible">
+					<h2>PayJoin here to open these channels</h2>
+					<a href="" id="bip21"></a>
+				</output>
+			</form>
+
+		</main>
 		<script type="text/javascript">
+			var channels = 1;
 			function add_channel() {
 				var table = document.getElementById("channels");
-				table.innerHTML = table.innerHTML + "<tr><td><input type=\"text\"></td><td><input type=\"text\"></td></tr>";
+				table.innerHTML = table.innerHTML + `<input type="text" name="channels[${++channels}][node]" aria-labelledby="destinationLabel" span="1"><input type="number" name="channels[${channels}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1">`;
 			}
 
-			function submit() {
-				var wallet_amount = parseInt(document.getElementById("wallet").value);
-				var fee_rate = parseInt(document.getElementById("feerate").value);
-				var channels = [];
-				var table = document.getElementById("channels");
-				for(var i = 1; i < table.rows.length; i++) {
-					var row = table.rows[i];
-					var node_addr = row.cells[0].getElementsByTagName("input")[0].value;
-					var amount = parseInt(row.cells[1].getElementsByTagName("input")[0].value);
-					channels.push({ "node": node_addr, "amount": amount });
-				}
-				request = {
-					"wallet_amount": wallet_amount,
-					"channels": channels,
-					"fee_rate": fee_rate,
+			document.querySelector("form").addEventListener("submit", async (event) => {
+				event.preventDefault();
+				let form = event.currentTarget;
+				let resource = form.action;
+				let options = {
+					method: form.method,
+					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+					// encode FormData as x-www-form-urlencoded
+					body: new URLSearchParams(new FormData(form)).toString()
 				};
-				var xmlhttp = new XMLHttpRequest();
-				xmlhttp.open("POST", "/pj/schedule");
-				xmlhttp.setRequestHeader("Content-Type", "application/json");
-				xmlhttp.send(JSON.stringify(request));
-				xmlhttp.onload = function() {
-					var link = document.getElementById("bip21");
-					link.href = this.responseText;
-					link.innerHTML = this.responseText;
-					document.getElementById("queue").classList.add("invisible");
-					document.getElementById("queued").classList.remove("invisible");
-				};
-			}
+
+				await fetch(resource, options)
+					.then(async (r) => {
+						if (!r.ok)
+							throw new Error('Something went wrong.');
+
+						let link = document.getElementById("bip21");
+						let bip21 = await r.text();
+						link.href = bip21;
+						link.innerHTML = bip21;
+						document.getElementById("queue").classList.add("invisible");
+						document.getElementById("queued").classList.remove("invisible");
+					})
+					.catch((err) => {
+						alert(err);
+					});
+				return false; // don't trigger form action attribute, we submitted through js
+			});
 		</script>
 	</body>
 </html>
