@@ -13,9 +13,9 @@ mod integration {
     use hyper::client::HttpConnector;
     use hyper_tls::HttpsConnector;
     use ln_types::P2PAddress;
+    use nolooking::http;
     use nolooking::lnd::LndClient;
-    use nolooking::scheduler::{ScheduledChannel, ScheduledPayJoin, Scheduler};
-    use nolooking::{http, scheduler};
+    use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
     use tokio_native_tls::native_tls;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
@@ -161,13 +161,10 @@ mod integration {
 
         let fee_rate = 1;
         let mut channels = Vec::with_capacity(1);
-        let wallet_amount = bitcoin::Amount::from_sat(10000);
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let pj = ScheduledPayJoin::new(wallet_amount, channels, fee_rate);
-        let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap());
-        let address = scheduler.schedule_payjoin(&pj).await.unwrap();
-
-        let bip21 = scheduler::format_bip21(address, pj.total_amount(), endpoint.clone());
+        let batch = ChannelBatch::new(channels, fee_rate);
+        let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
+        let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         println!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
@@ -189,7 +186,7 @@ mod integration {
         let bind_addr =
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
                 .into();
-        let nolooking_server = http::serve(scheduler, bind_addr, endpoint.clone());
+        let nolooking_server = http::serve(scheduler, bind_addr);
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port

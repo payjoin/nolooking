@@ -9,6 +9,7 @@ use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut};
 use ln_types::P2PAddress;
 use tonic_lnd::lnrpc::OpenChannelRequest;
+use url::Url;
 
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
@@ -34,6 +35,24 @@ impl ScheduledChannel {
 }
 
 #[derive(Clone, serde_derive::Deserialize, Debug)]
+pub struct ChannelBatch {
+    channels: Vec<ScheduledChannel>,
+    fee_rate: u64,
+}
+
+impl ChannelBatch {
+    pub fn new(channels: Vec<ScheduledChannel>, fee_rate: u64) -> Self {
+        Self { channels, fee_rate }
+    }
+
+    pub fn channels(&self) -> &Vec<ScheduledChannel> { &self.channels }
+
+    pub fn fee_rate(&self) -> u64 { self.fee_rate }
+}
+
+/// A prepared channel batch.
+///  wallet_amount = RequiredReserve from LND set just before returning a bip21 uri.
+#[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledPayJoin {
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     wallet_amount: bitcoin::Amount,
@@ -42,15 +61,11 @@ pub struct ScheduledPayJoin {
 }
 
 impl ScheduledPayJoin {
-    pub fn new(
-        wallet_amount: bitcoin::Amount,
-        channels: Vec<ScheduledChannel>,
-        fee_rate: u64,
-    ) -> Self {
-        Self { wallet_amount, channels, fee_rate }
+    pub fn new(wallet_amount: bitcoin::Amount, batch: ChannelBatch) -> Self {
+        Self { wallet_amount, channels: batch.channels().clone(), fee_rate: batch.fee_rate() }
     }
 
-    pub fn total_amount(&self) -> bitcoin::Amount {
+    fn total_amount(&self) -> bitcoin::Amount {
         let fees = calculate_fees(
             self.channels.len() as u64,
             self.fee_rate,
@@ -89,22 +104,6 @@ impl ScheduledPayJoin {
 
     /// This externally exposes [ScheduledPayJoin]::wallet_amount.
     pub fn wallet_amount(&self) -> bitcoin::Amount { self.wallet_amount }
-
-    /// Test connections with remote lightning nodes that we are trying to create channels with as
-    /// part of this [ScheduledPayJoin].
-    pub async fn test_connections(&self, client: &LndClient) -> Result<(), LndError> {
-        let handles = self
-            .channels
-            .iter()
-            .map(|ch| (client.clone(), ch.node.clone()))
-            .map(|(client, node)| tokio::spawn(async move { client.ensure_connected(node).await }))
-            .collect::<Vec<_>>();
-
-        for handle in handles {
-            handle.await.unwrap()?;
-        }
-        Ok(())
-    }
 
     pub async fn multi_open_channel(
         &self,
@@ -231,27 +230,37 @@ fn temporary_channel_id() -> ChannelId { rand::random() }
 #[derive(Clone)]
 pub struct Scheduler {
     lnd: LndClient,
+    endpoint: Url,
     pjs: Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>, // payjoins mapped by owned `scriptPubKey`s
 }
 
 impl Scheduler {
     /// New [Scheduler].
-    pub fn new(lnd: LndClient) -> Self { Self { lnd, pjs: Default::default() } }
+    pub fn new(lnd: LndClient, endpoint: Url) -> Self {
+        Self { lnd, endpoint, pjs: Default::default() }
+    }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?))
+        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests")))
     }
 
     /// Schedules a payjoin.
     pub async fn schedule_payjoin(
         &self,
-        pj: &ScheduledPayJoin,
-    ) -> Result<bitcoin::Address, SchedulerError> {
-        pj.test_connections(&self.lnd).await?;
+        batch: ChannelBatch,
+        // TODO return bip21::Url Seems broken or incompatible with bip78 now
+    ) -> Result<(String, Address), SchedulerError> {
+        self.test_connections(&batch.channels()).await?;
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
+        let required_reserve = self.lnd.required_reserve(batch.channels().len() as u32).await?;
+        let pj = &ScheduledPayJoin::new(required_reserve, batch);
+
         if self.insert_payjoin(&bitcoin_addr, pj) {
-            Ok(bitcoin_addr)
+            Ok((
+                format_bip21(bitcoin_addr.clone(), pj.total_amount(), self.endpoint.clone()),
+                bitcoin_addr,
+            ))
         } else {
             Err(SchedulerError::Internal("lnd provided duplicate bitcoin addresses"))
         }
@@ -339,6 +348,20 @@ impl Scheduler {
 
         vout_pj_match
     }
+
+    /// Test that [ScheduledChannel] peer nodes are connected to ours
+    pub async fn test_connections(&self, channels: &Vec<ScheduledChannel>) -> Result<(), LndError> {
+        let handles = channels
+            .iter()
+            .map(|ch| (self.lnd.clone(), ch.node.clone()))
+            .map(|(client, node)| tokio::spawn(async move { client.ensure_connected(node).await }))
+            .collect::<Vec<_>>();
+
+        for handle in handles {
+            handle.await.unwrap()?;
+        }
+        Ok(())
+    }
 }
 
 pub fn calculate_fees(
@@ -355,13 +378,14 @@ pub fn calculate_fees(
     bitcoin::Amount::from_sat(fee_rate * additional_vsize)
 }
 
-pub fn format_bip21(address: Address, total_amount: Amount, endpoint: url::Url) -> String {
-    format!(
+pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> String {
+    let bip21_str = format!(
         "bitcoin:{}?amount={}&pj={}pj",
         address,
-        total_amount.to_string_in(bitcoin::Denomination::Bitcoin),
+        amount.to_string_in(bitcoin::Denomination::Bitcoin),
         endpoint.to_string()
-    )
+    );
+    bip21_str
 }
 
 #[derive(Debug)]
