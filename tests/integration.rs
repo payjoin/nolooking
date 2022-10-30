@@ -37,9 +37,9 @@ mod integration {
         // wait for bitcoind to start and for lnd to be fully initialized with secrets
 
         // sanity check
-        let timeout = 6;
+        let mut timeout = 6;
         let bitcoin_rpc = loop {
-            if --timeout < 0 {
+            if timeout < 0 {
                 panic!("can't connect to bitcoin rpc");
             }
             sleep(Duration::from_secs(1));
@@ -52,6 +52,7 @@ mod integration {
                     Err(e) => println!("Attempting to contact btcrpc: {}", e),
                 }
             }
+            timeout -= 1;
         };
 
         // merchant lnd nolooking configuration
@@ -59,9 +60,9 @@ mod integration {
         let cert_file = format!("{}/merchant-tls.cert", &tmp_path).to_string();
         let macaroon_file = format!("{}/merchant-admin.macaroon", &tmp_path).to_string();
 
-        let timeout = 6;
+        timeout = 6;
         let mut merchant_client = loop {
-            if --timeout < 0 {
+            if timeout < 0 {
                 panic!("can't connect to merchant_client");
             }
             sleep(Duration::from_secs(1));
@@ -91,6 +92,7 @@ mod integration {
                     Err(e) => println!("Attempting to connect lnd: {}", e),
                 }
             }
+            timeout -= 1;
         };
 
         // conf to merchant
