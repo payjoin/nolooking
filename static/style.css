@@ -1,0 +1,85 @@
+:root {
+    --primary: #d38105;
+}
+
+html, body {
+    background-image: url("spookyloin2.png");
+    text-align: left;
+    width: 100%;
+    color: rgb(179, 28, 28);
+}
+
+
+h1 {
+    font-weight: 1000;
+    font-size: 3em;
+    text-shadow: 10px 10px 15px rgb(0, 0, 0);
+    background-image: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(255, 0, 0),
+        rgb(255, 251, 0)
+    );
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+}
+
+h2 {
+    font-weight: 600;
+    background-image: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(255, 174, 0),
+        rgb(0, 255, 242)
+    );
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+}
+
+
+h3 {
+    font-weight: 600;
+    background-image: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(255, 174, 0),
+        rgb(0, 255, 242)
+    );
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+}
+
+p {
+    font-size: 1.5em;
+    font-weight: 400;
+    background-image: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(175, 26, 26),
+        rgba(208, 255, 0, 0.986)
+    );
+    color: transparent;
+    background-clip: text;
+    -webkit-background-clip: text;
+}
+
+main form {
+    max-width: 750px;
+    margin: 0 auto;
+    padding: 2rem
+}
+
+#qrcode {
+    margin: 2rem;
+}
+
+fieldset {
+    background-color: black;
+}
+
+input {
+    text-align: right;
+}
+
+.invisible {
+    display: none;
+}

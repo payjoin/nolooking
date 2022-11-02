@@ -1,6 +1,7 @@
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use qrcode_generator::QrCodeEcc;
 
 use crate::scheduler::{ScheduledPayJoin, Scheduler, self};
 use std::net::SocketAddr;
@@ -10,6 +11,14 @@ const STATIC_DIR: &str = "/usr/share/nolooking/static";
 
 #[cfg(feature = "test_paths")]
 const STATIC_DIR: &str = "static";
+
+/// Create QR code and save to `STATIC_DIR/qr_codes/<name>.png`
+fn create_qr_code(qr_string: &str, name: &str) {
+    let filename = format!("{}/qr_codes/{}.png", STATIC_DIR, name);
+    qrcode_generator::to_png_to_file(qr_string, QrCodeEcc::Low, 512, filename.clone())
+        .expect(&format!("Saved QR code: {}", filename));
+}
+
 
 /// Serve requests to Schedule and execute PayJoins with given options.
 pub async fn serve(sched: Scheduler, bind_addr: SocketAddr, endpoint: url::Url) -> Result<(), hyper::Error> {
@@ -79,8 +88,9 @@ async fn handle_web_req(
 
             let address = scheduler.schedule_payjoin(&request).await.unwrap();
             let total_amount = request.total_amount();
-            let uri = scheduler::format_bip21(address, total_amount, endpoint);
-            let mut response = Response::new(Body::from(uri));
+            let uri = scheduler::format_bip21(address.clone(), total_amount, endpoint);
+            let mut response = Response::new(Body::from(uri.clone()));
+            create_qr_code(&uri, &address.to_string());
             response
                 .headers_mut()
                 .insert(hyper::header::CONTENT_TYPE, "text/plain".parse().unwrap());
