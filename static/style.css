@@ -83,3 +83,13 @@ input {
 .invisible {
     display: none;
 }
+
+.warning {
+    text-align: center;
+    border: 1px solid var(--codeBorderColor,var(--inputBorderColor));
+    color: yellow;
+    border-radius: var(--inputRadius);
+    font-size: 1.3rem;
+    font-family: var(--fontMono);
+    white-space: nowrap;
+}
