@@ -30,7 +30,7 @@ mod integration {
         std::fs::write(format!("{}/localhost.pem", ssl_dir), cert.serialize_pem()?).expect("unable to write file");
 
         let compose_dir = format!("{}/tests/compose", env!("CARGO_MANIFEST_DIR"));
-        let fixture = Fixture::new(compose_dir);
+        let mut fixture = Fixture::new(compose_dir);
         let tmp_path = fixture.tmp_path();
 
         // wait for bitcoind to start and for lnd to be fully initialized with secrets
@@ -261,7 +261,10 @@ mod integration {
         };
 
         tokio::select! {
-            _ = loop_til_open_channel => println!("Channel opened!"),
+            _ = loop_til_open_channel => {
+                    fixture.test_succeeded = true;
+                    println!("Channel opened!");
+                },
             _ = tokio::time::sleep(Duration::from_secs(6)) => println!("Channel open upate listener timed out"),
         };
 
@@ -270,6 +273,7 @@ mod integration {
     struct Fixture {
         compose_dir: String,
         pub tmp_dir: tempfile::TempDir,
+        pub test_succeeded: bool,
     }
 
     impl Fixture {
@@ -288,6 +292,7 @@ mod integration {
             Fixture {
                 compose_dir,
                 tmp_dir,
+                test_succeeded: false,
             }
         }
 
@@ -299,7 +304,7 @@ mod integration {
     impl Drop for Fixture {
         /// This runs on panic to clean up the test
         fn drop(&mut self) {
-            println!("Running `docker-compose down -v` to clean up");
+            println!("\nRunning `docker-compose down -v` to clean up");
             Command::new("docker-compose")
                 .arg("--project-directory")
                 .arg(self.compose_dir.as_str())
@@ -307,6 +312,9 @@ mod integration {
                 .arg("-v")
                 .output()
                 .expect("failed to docker-compose ... down");
+            if !self.test_succeeded {
+                panic!("Cleanup successful. Panicking because this test failed.");
+            }
         }
     }
 
