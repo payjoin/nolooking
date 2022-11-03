@@ -176,7 +176,7 @@ mod integration {
             };
         });
 
-        let bind_addr = ([127, 0, 0, 1], 3000).into();
+        let bind_addr = (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1]}, 3000).into();
         let nolooking_server = http::serve(scheduler, bind_addr, endpoint.clone());
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
