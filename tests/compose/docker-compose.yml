@@ -8,8 +8,7 @@ services:
       - "./nginx/ssl:/etc/ssl"
     ports:
       - "3010:3010"
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - "3000:3000"
 
   bitcoind:
     restart: unless-stopped
