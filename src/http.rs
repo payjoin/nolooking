@@ -55,7 +55,11 @@ async fn handle_web_req(
             let file =
                 std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path))
                     .expect("can't open static file");
-            Ok(Response::new(Body::from(file)))
+            Ok(Response::builder()
+                .status(200)
+                .header("Cache-Control", "max-age=604800")
+                .body(Body::from(file))
+                .expect("valid response"))
         }
 
         (&Method::POST, "/pj") => {
