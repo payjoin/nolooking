@@ -46,9 +46,16 @@
 					<!-- channels -->
 					<x-grid columns=2 id="channels">
 						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
-						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span=1 required><input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span=1 required><!-- LND enforces minimum 20k sats channel -->
-						<button type="button" style="background: none;" span="2" onclick="add_channel()" order=1>[+]</button>
+						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
+						<!-- LND enforces minimum 20k sats channel -->
+						<input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
 					</x-grid>
+					<p>
+						<x-flex>
+							<button type="button" class="is-circle" onclick="add_channel()">+</button>
+							<button type="button" class="is-circle" onclick="remove_channel()">-</button>
+						</x-flex>
+					</p>
 				</fieldset>
 				<br>
 				<div id="queue">
@@ -66,16 +73,25 @@
 
 		</main>
 		<script type="text/javascript">
-			var channels = 1;
 			function add_channel() {
-				var table = document.getElementById("channels");
+				let channels = document.getElementById("channels");
 				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" name="channels[${++channels}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`
-				console.log(div.innerHTML)
-				console.debug(div);
-				table.appendChild(div.firstChild);
-				table.appendChild(div.lastChild)
+				div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				channels.appendChild(div.firstChild);
+				channels.appendChild(div.lastChild);
 			}
+
+			function remove_channel() {
+				let channels = document.getElementById("channels");
+				let channelInputs = channels.getElementsByTagName("input");
+				if (channelInputs.length <= 2 ) {
+					// length <= [node id, channel capacity]
+					return;
+				}
+				channels.removeChild(channels.children[channels.children.length - 1]);
+				channels.removeChild(channels.children[channels.children.length - 2]);
+			}
+
 			document.querySelector("form").addEventListener("submit", async (event) => {
 				event.preventDefault();
 				let form = event.currentTarget;
