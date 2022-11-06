@@ -1,10 +1,11 @@
+use std::net::SocketAddr;
+
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use qrcode_generator::QrCodeEcc;
 
-use crate::scheduler::{ScheduledPayJoin, Scheduler, self};
-use std::net::SocketAddr;
+use crate::scheduler::{self, ScheduledPayJoin, Scheduler};
 
 #[cfg(not(feature = "test_paths"))]
 const STATIC_DIR: &str = "/usr/share/nolooking/static";
@@ -19,9 +20,12 @@ fn create_qr_code(qr_string: &str, name: &str) {
         .expect(&format!("Saved QR code: {}", filename));
 }
 
-
 /// Serve requests to Schedule and execute PayJoins with given options.
-pub async fn serve(sched: Scheduler, bind_addr: SocketAddr, endpoint: url::Url) -> Result<(), hyper::Error> {
+pub async fn serve(
+    sched: Scheduler,
+    bind_addr: SocketAddr,
+    endpoint: url::Url,
+) -> Result<(), hyper::Error> {
     let new_service = make_service_fn(move |_| {
         let sched = sched.clone();
         let endpoint = endpoint.clone();
@@ -39,7 +43,7 @@ pub async fn serve(sched: Scheduler, bind_addr: SocketAddr, endpoint: url::Url) 
 async fn handle_web_req(
     scheduler: Scheduler,
     req: Request<Body>,
-    endpoint: url::Url 
+    endpoint: url::Url,
 ) -> Result<Response<Body>, hyper::Error> {
     use std::path::Path;
 
@@ -88,7 +92,8 @@ async fn handle_web_req(
             let bytes = hyper::body::to_bytes(req.into_body()).await?;
             // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
             let conf = serde_qs::Config::new(2, false);
-            let request: ScheduledPayJoin = conf.deserialize_bytes(&bytes).expect("invalid request");
+            let request: ScheduledPayJoin =
+                conf.deserialize_bytes(&bytes).expect("invalid request");
 
             let address = scheduler.schedule_payjoin(&request).await.unwrap();
             let total_amount = request.total_amount();

@@ -1,14 +1,12 @@
-use std::{
-    collections::HashMap,
-    convert::TryInto,
-    fmt,
-    sync::{Arc, Mutex},
-};
+use std::collections::HashMap;
+use std::convert::TryInto;
+use std::fmt;
+use std::sync::{Arc, Mutex};
 
 use bip78::receiver::{Proposal, UncheckedProposal};
-use bitcoin::{consensus::Encodable, Amount};
+use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::{Address, Script, TxOut};
+use bitcoin::{Address, Amount, Script, TxOut};
 use ln_types::P2PAddress;
 use tonic_lnd::rpc::OpenChannelRequest;
 
@@ -23,9 +21,7 @@ pub struct ScheduledChannel {
 }
 
 impl ScheduledChannel {
-    pub fn new(node: P2PAddress, amount: bitcoin::Amount) -> Self {
-        Self { node, amount }
-    } 
+    pub fn new(node: P2PAddress, amount: bitcoin::Amount) -> Self { Self { node, amount } }
 
     pub(crate) fn from_args(addr: &str, amount: &str) -> Result<Self, ArgError> {
         let node = addr.parse::<P2PAddress>().map_err(ArgError::InvalidNodeAddress)?;
