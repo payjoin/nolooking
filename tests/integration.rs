@@ -1,27 +1,66 @@
 #[cfg(test)]
 mod integration {
-    use std::collections::HashMap;
-    use std::convert::TryFrom;
     use std::env;
     use std::process::Command;
+    use std::str::FromStr;
     use std::thread::sleep;
     use std::time::Duration;
 
-    use bip78::bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
-    use bip78::{PjUriExt, UriExt};
     use bitcoincore_rpc::{Auth, Client, RpcApi};
-    use hyper::header::CONTENT_TYPE;
-    use hyper::HeaderMap;
     use ln_types::P2PAddress;
-    use log::{debug, error};
     use nolooking::http;
     use nolooking::lnd::LndClient;
     use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
+    /*
+    This tests the full integration of the scheduler, http server, and lnd client.
+    It starts up two local lnd nodes, and then starts up the http server.
+
+    The `merchant` hosts the receiver. The `peer` hosts the sender.
+    The `peer` serves both as the Sender and Lightning Peer for the PayJoin.
+    In the wild, Sender and Lightning peer are likely separate entities.
+
+     ┌──────────────┐                ┌─────────────────┐                  ┌──────┐
+     │Lightning Peer│                │    `merchant`   │                  │Sender│
+     └──────┬───────┘                └───────┬─────────┘                  └───┬──┘
+            │                                │                                │
+            │            BOLT 2              ├─────── Bip21 with ?pj= ───────►│
+            │     Channel Establishment      │                                │
+            │                                │◄────── Original PSBT ──────────┤
+            │                                │                                │
+            │                                │                                │
+            │◄──────── open_channel ─────────┤                                │
+            │                                │                                │
+            ├──────── accept_channel ───────►│                                │
+            │                                │             BIP 78             │
+            │                                │                                │
+            │◄─────── funding_created ───────┤                                │
+            │                                │                                │
+            ├──────── funding_signed ───────►│                                │
+            │                                │                                │
+            │                                │        PayJoin Proposal        │
+            │                                ├──────       PSBT       ───────►│
+            │                                │                                │
+            │                                │                                │
+            │                                │    ┌─ PayJoin + Funding ───────┤
+            │                                │    │     Transaction           │
+            │                                │    │                           │
+           x│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxx ▼ xxxxxxxxxxxxxxxxxxxxxxxxxx│x
+           xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+           xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx BITCOIN NETWORK xxxxxxxxxxxxxxxxxxxxx
+           xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+           x│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx│x
+            │                                │                                │
+            │◄────────channel_ready ─────────┤                                │
+            │                                │                                │
+            ├──────── channel_ready ────────►│                                │
+            │                                │                                │
+    */
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn std::error::Error>> {
+        let _ = env_logger::try_init();
         let localhost = vec!["localhost".to_string()];
         let cert = rcgen::generate_simple_self_signed(localhost)?;
         let ssl_dir = format!("{}/tests/compose/nginx/ssl", env!("CARGO_MANIFEST_DIR"));
@@ -49,7 +88,7 @@ mod integration {
             ) {
                 match btcrpc.get_best_block_hash() {
                     Ok(_) => break btcrpc,
-                    Err(e) => error!("Attempting to contact btcrpc: {}", e),
+                    Err(e) => log::error!("Attempting to contact btcrpc: {}", e),
                 }
             }
             timeout -= 1;
@@ -73,7 +112,7 @@ mod integration {
                 .arg(format!("{}/merchant-tls.cert", tmp_path))
                 .output()
                 .expect("failed to copy tls.cert");
-            debug!("copied merchant-tls.cert");
+            log::info!("copied merchant-tls.cert");
 
             Command::new("docker")
                 .arg("cp")
@@ -81,7 +120,7 @@ mod integration {
                 .arg(format!("{}/merchant-admin.macaroon", &tmp_path))
                 .output()
                 .expect("failed to copy admin.macaroon");
-            debug!("copied merchant-admin.macaroon");
+            log::info!("copied merchant-admin.macaroon");
 
             // Connecting to LND requires only address, cert file, and macaroon file
             let client = tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await;
@@ -89,7 +128,7 @@ mod integration {
             if let Ok(mut client) = client {
                 match client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await {
                     Ok(_) => break client,
-                    Err(e) => error!("Attempting to connect lnd: {}", e),
+                    Err(e) => log::error!("Attempting to connect lnd: {}", e),
                 }
             }
             timeout -= 1;
@@ -97,7 +136,7 @@ mod integration {
 
         // conf to merchant
         let endpoint: url::Url = "https://localhost:3010".parse().expect("not a valid Url");
-        debug!("{}", &endpoint.clone().to_string());
+        log::info!("{}", &endpoint.clone().to_string());
         let conf_string = format!(
             "bind_port=3000\nendpoint=\"{}\"\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
             &endpoint.clone().to_string(), &address_str, &cert_file, &macaroon_file
@@ -111,7 +150,7 @@ mod integration {
             .arg(format!("{}/peer-tls.cert", &tmp_path))
             .output()
             .expect("failed to copy tls.cert");
-        debug!("copied peer-tls-cert");
+        log::info!("copied peer-tls-cert");
 
         Command::new("docker")
             .arg("cp")
@@ -119,7 +158,7 @@ mod integration {
             .arg(format!("{}/peer-admin.macaroon", &tmp_path))
             .output()
             .expect("failed to copy admin.macaroon");
-        debug!("copied peer-admin.macaroon");
+        log::info!("copied peer-admin.macaroon");
 
         let address_str = "https://localhost:53283";
         let cert_file = format!("{}/peer-tls.cert", &tmp_path).to_string();
@@ -133,12 +172,23 @@ mod integration {
             peer_client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await.unwrap();
 
         let peer_id_pubkey = info.into_inner().identity_pubkey;
-        debug!("peer_id_pubkey: {:#?}", peer_id_pubkey);
+        log::info!("peer_id_pubkey: {:#?}", peer_id_pubkey);
 
-        let source_address = bitcoin_rpc.get_new_address(None, None).unwrap();
+        // mine on-chain funds to peer_client
+        let source_address = peer_client
+            .lightning()
+            .new_address(tonic_lnd::lnrpc::NewAddressRequest {
+                r#type: 4, //taproot
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .address;
+        let source_address = bitcoin::Address::from_str(&source_address).unwrap();
         bitcoin_rpc.generate_to_address(101, &source_address).unwrap();
         std::thread::sleep(Duration::from_secs(5));
-        debug!("SLEPT");
+        log::info!("SLEPT");
         // connect one to the next
         let connected = merchant_client
             .lightning()
@@ -152,7 +202,7 @@ mod integration {
             })
             .await
             .expect("failed to connect peers");
-        debug!("{:?}", connected);
+        log::info!("{:?}", connected);
 
         let peer_address = format!("{}@{}", peer_id_pubkey, "peer_lnd:9735");
         let peer_address = peer_address.parse::<P2PAddress>().expect("invalid ln P2PAddress");
@@ -165,7 +215,7 @@ mod integration {
         let batch = ChannelBatch::new(channels, false, fee_rate);
         let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
         let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
-        debug!("{}", &bip21);
+        log::info!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
             let channel_update = peer_client
@@ -187,94 +237,37 @@ mod integration {
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
                 .into();
         let nolooking_server = http::Server::new(scheduler, bind_addr);
+        let dead_end: url::Url = "https://localhost:3011".parse().unwrap();
+
+        // Connecting to LND requires only address, cert file, and macaroon file
+        let peer_client =
+            tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await.unwrap();
+        let peer_scheduler =
+            Scheduler::new(LndClient::new(peer_client).await.unwrap(), dead_end.clone());
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
             std::thread::sleep(Duration::from_secs(2));
             // TODO loop on ping 3000 until it the server is live
-
-            let link = bip78::Uri::try_from(bip21).expect("bad bip78 uri");
-
-            let link = link
-                .check_pj_supported()
-                .unwrap_or_else(|_| panic!("The provided URI doesn't support payjoin (BIP78)"));
-
-            if link.amount.is_none() {
-                panic!("please specify the amount in the Uri");
-            }
-
-            let mut outputs = HashMap::with_capacity(1);
-            outputs.insert(link.address.to_string(), link.amount.expect("bad bip78 uri amount"));
-
-            let options = bitcoincore_rpc::json::WalletCreateFundedPsbtOptions {
-                lock_unspent: Some(true),
-                fee_rate: Some(bip78::bitcoin::Amount::from_sat(2000)),
-                ..Default::default()
-            };
-            let psbt = &bitcoin_rpc
-                .wallet_create_funded_psbt(
-                    &[], // inputs
-                    &outputs,
-                    None, // locktime
-                    Some(options),
-                    None,
-                )
-                .expect("failed to create PSBT")
-                .psbt;
-            let psbt = bitcoin_rpc
-                .wallet_process_psbt(&psbt, None, None, None)
-                .expect("bitcoind failed to fund psbt")
-                .psbt;
-            let psbt = load_psbt_from_base64(psbt.as_bytes()).expect("bad psbt bytes");
-            debug!("Original psbt: {:#?}", psbt);
-            let pj_params = bip78::sender::Configuration::with_fee_contribution(
-                bip78::bitcoin::Amount::from_sat(10000),
-                None,
-            );
-            let (req, ctx) =
-                link.create_pj_request(psbt, pj_params).expect("failed to make http pj request");
-            let https = reqwest::ClientBuilder::new()
-                .danger_accept_invalid_certs(true) // this is only a test
-                .build()
-                .expect("https client");
-            let mut headers = HeaderMap::new();
-            headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
-            let res = https
-                .post(req.url)
-                .headers(headers)
-                .body(req.body)
-                .send()
-                .await
-                .expect("valid PayJoin server response");
-            debug!("res: {:#?}", res);
-            let psbt = ctx
-                .process_response(res.bytes().await.unwrap().to_vec().as_slice())
-                .expect("failed to process response");
-            debug!("Proposed psbt: {:#?}", psbt);
-            let psbt = bitcoin_rpc
-                .wallet_process_psbt(&serialize_psbt(&psbt), None, None, None)
-                .unwrap()
-                .psbt;
-            let tx =
-                bitcoin_rpc.finalize_psbt(&psbt, Some(true)).unwrap().hex.expect("incomplete psbt");
-            bitcoin_rpc.send_raw_transaction(&tx).unwrap();
+            let bip21 = bip78::Uri::from_str(&bip21).unwrap();
+            peer_scheduler.send_payjoin(bip21, true).await.unwrap();
 
             // Confirm the newly opene transaction in new blocks
             bitcoin_rpc.generate_to_address(8, &source_address).unwrap();
         });
 
         tokio::select! {
-            _ = payjoin_channel_open => debug!("payjoin-client completed first"),
-            _ = nolooking_server.serve() => debug!("nolooking server stopped first. This shouldn't happen"),
-            _ = tokio::time::sleep(Duration::from_secs(20)) => debug!("payjoin timed out after 20 seconds"),
+            _ = payjoin_channel_open => log::info!("payjoin-client completed first"),
+            _ = nolooking_server.serve() => log::info!("nolooking server stopped first. This shouldn't happen"),
+            _ = tokio::time::sleep(Duration::from_secs(20)) => log::info!("payjoin timed out after 20 seconds"),
         };
 
         tokio::select! {
             _ = loop_til_open_channel => {
                     fixture.test_succeeded = true;
-                    debug!("Channel opened!");
+                    log::info!("Channel opened!");
                 },
-            _ = tokio::time::sleep(Duration::from_secs(6)) => debug!("Channel open upate listener timed out"),
+            _ = tokio::time::sleep(Duration::from_secs(6)) => log::info!("Channel open upate listener timed out"),
         };
 
         Ok(())
@@ -287,7 +280,7 @@ mod integration {
 
     impl Fixture {
         fn new(compose_dir: String) -> Self {
-            debug!("Running docker-compose from {}", compose_dir);
+            log::info!("Running docker-compose from {}", compose_dir);
             Command::new("docker-compose")
                 .arg("--project-directory")
                 .arg(&compose_dir)
@@ -307,7 +300,7 @@ mod integration {
     impl Drop for Fixture {
         /// This runs on panic to clean up the test
         fn drop(&mut self) {
-            debug!("\nRunning `docker-compose down -v` to clean up");
+            log::info!("\nRunning `docker-compose down -v` to clean up");
             Command::new("docker-compose")
                 .arg("--project-directory")
                 .arg(self.compose_dir.as_str())
@@ -319,29 +312,5 @@ mod integration {
                 panic!("Cleanup successful. Panicking because this test failed.");
             }
         }
-    }
-
-    fn load_psbt_from_base64(
-        mut input: impl std::io::Read,
-    ) -> Result<Psbt, bip78::bitcoin::consensus::encode::Error> {
-        use bip78::bitcoin::consensus::Decodable;
-
-        let reader = base64::read::DecoderReader::new(
-            &mut input,
-            base64::Config::new(base64::CharacterSet::Standard, true),
-        );
-        Psbt::consensus_decode(reader)
-    }
-
-    fn serialize_psbt(psbt: &Psbt) -> String {
-        use bip78::bitcoin::consensus::Encodable;
-
-        let mut encoder = base64::write::EncoderWriter::new(Vec::new(), base64::STANDARD);
-        psbt.consensus_encode(&mut encoder)
-            .expect("Vec doesn't return errors in its write implementation");
-        String::from_utf8(
-            encoder.finish().expect("Vec doesn't return errors in its write implementation"),
-        )
-        .unwrap()
     }
 }
