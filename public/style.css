@@ -1,14 +1,15 @@
 :root {
-    --primary: #d38105;
+    --primary: #811a1a;
 }
 
 html, body {
-    background-image: url("spookyloin2.png");
+    background-image: url("christmasloin.png");
+    background-repeat: no-repeat;
+    background-size:cover;
     text-align: left;
     width: 100%;
-    color: rgb(179, 28, 28);
+    color: rgb(36, 166, 24);
 }
-
 
 h1 {
     font-weight: 1000;
@@ -16,8 +17,8 @@ h1 {
     text-shadow: 10px 10px 15px rgb(0, 0, 0);
     background-image: conic-gradient(
         from 0deg at 0% 0%,
-        rgb(255, 0, 0),
-        rgb(255, 251, 0)
+        rgba(2, 223, 76, 0.786),
+        rgb(202, 17, 17)
     );
     color: transparent;
     background-clip: text;
@@ -28,8 +29,8 @@ h2 {
     font-weight: 600;
     background-image: conic-gradient(
         from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
+        rgb(255, 255, 255),
+        rgb(255, 255, 255)
     );
     color: transparent;
     background-clip: text;
@@ -41,8 +42,8 @@ h3 {
     font-weight: 600;
     background-image: conic-gradient(
         from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
+        rgb(255, 255, 255),
+        rgb(255, 255, 255)
     );
     color: transparent;
     background-clip: text;
@@ -54,8 +55,8 @@ p {
     font-weight: 400;
     background-image: conic-gradient(
         from 0deg at 0% 0%,
-        rgb(175, 26, 26),
-        rgba(208, 255, 0, 0.986)
+        rgb(255, 255, 255),
+        rgb(124, 126, 1)
     );
     color: transparent;
     background-clip: text;

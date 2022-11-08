@@ -17,122 +17,123 @@
 		<meta name="theme-color" content="#ffffff">
 		<title>nolooking // Lightning PayJoin</title>
 	</head>
-	<body dark-mode>
+	<body light-mode>
 		<br>
 		<br>
-		<header class="center">
-			<a href="https://nolooking.chaincase.app/" target="_blank" style="text-decoration:none"><h1>👻 &nbsp;Lightning PayJoin&nbsp; 👻</h1></a>
-			<h3 style="color: orange;">🎃 Halloween Alpha [experimental] | Avoid sp👀ks</h3>
-			<h2>Queue batches of lightning channels to open in a single transaction</h2>
-		</header>
 		<main class="center-axyz">
-			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
-				x-flex direction="column">
-				<fieldset>
-					<legend>Config</legend>
-					<div>
-						<label for="reserve">
-							<details>
-								<summary>
-									Anchor Reserve Deposit (sats)
-								</summary>
-								New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
-							</details>
-						</label>
-						<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1" value="0">
-						<datalist id="defaultReserveSats">
-							<option value="10000"></option>
-						</datalist>
-					</div>
-					<div>
-						<label for="fee_rate">Maximum fee rate (sats/vB)</label>
-						<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
-					</div>
-				</fieldset>
-				<fieldset>
-					<legend>Queue Channels to Open</legend>
-					<!-- channels -->
-					<x-grid columns=2 id="channels">
-						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
-						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
-						<!-- LND enforces minimum 20k sats channel -->
-						<input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
-					</x-grid>
-					<p>
-						<x-flex>
-							<button type="button" class="is-circle" onclick="add_channel()">+</button>
-							<button type="button" class="is-circle" onclick="remove_channel()">-</button>
-						</x-flex>
-					</p>
-				</fieldset>
-				<br>
-				<div id="queue">
-					<x-grid columns=2>
-						<button type="submit" class="float-right" span="2">Generate Funding Request</button>
-					</x-grid>
+			<div style="background-color: black; border-radius: 25px; padding: 20px">
+				<header class="center">
+					<a href="https://nolooking.chaincase.app/" target="_blank" style="text-decoration:none"><h1>🎁 &nbsp;Lightning PayJoin&nbsp; 🎄</h1></a>
+					<h3>🎄 Holiday Alpha [experimental] | Avoid sp👀ks</h3>
+					<h2>Queue batches of lightning channels to open in a single transaction</h2>
+				</header>
+					<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
+						x-flex direction="column">
+						<fieldset>
+							<legend>Config</legend>
+							<div>
+								<label for="reserve">
+									<details>
+										<summary>
+											Anchor Reserve Deposit (sats)
+										</summary>
+										New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
+									</details>
+								</label>
+								<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1" value="0">
+								<datalist id="defaultReserveSats">
+									<option value="10000"></option>
+								</datalist>
+							</div>
+							<div>
+								<label for="fee_rate">Maximum fee rate (sats/vB)</label>
+								<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
+							</div>
+						</fieldset>
+						<fieldset>
+							<legend>Queue Channels to Open</legend>
+							<!-- channels -->
+							<x-grid columns=2 id="channels">
+								<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
+								<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
+								<!-- LND enforces minimum 20k sats channel -->
+								<input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
+							</x-grid>
+							<p>
+								<x-flex>
+									<button type="button" class="is-circle" onclick="add_channel()">+</button>
+									<button type="button" class="is-circle" onclick="remove_channel()">-</button>
+								</x-flex>
+							</p>
+						</fieldset>
+						<br>
+						<div id="queue">
+							<x-grid columns=2>
+								<button type="submit" class="float-right" span="2">Generate Funding Request</button>
+							</x-grid>
+						</div>
+						<output id="queued" class="invisible">
+							<h2>PayJoin here to open these channels</h2>
+							<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</code>
+							<div id="qrcode" class="center-axyz"></div>
+							<a href="" id="bip21"></a>
+							<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+						</output>
+					</form>
 				</div>
-				<output id="queued" class="invisible">
-					<h2>PayJoin here to open these channels</h2>
-					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</code>
-					<div id="qrcode" class="center-axyz"></div>
-					<a href="" id="bip21"></a>
-					<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
-				</output>
-			</form>
-
-		</main>
-		<script type="text/javascript">
-			function add_channel() {
-				let channels = document.getElementById("channels");
-				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
-				channels.appendChild(div.firstChild);
-				channels.appendChild(div.lastChild);
-			}
-
-			function remove_channel() {
-				let channels = document.getElementById("channels");
-				let channelInputs = channels.getElementsByTagName("input");
-				if (channelInputs.length <= 2 ) {
-					// length <= [node id, channel capacity]
-					return;
+			</main>
+			<script type="text/javascript">
+				function add_channel() {
+					let channels = document.getElementById("channels");
+					let div = document.createElement('div');
+					div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+					channels.appendChild(div.firstChild);
+					channels.appendChild(div.lastChild);
 				}
-				channels.removeChild(channels.children[channels.children.length - 1]);
-				channels.removeChild(channels.children[channels.children.length - 2]);
-			}
 
-			document.querySelector("form").addEventListener("submit", async (event) => {
-				event.preventDefault();
-				let form = event.currentTarget;
-				let resource = form.action;
-				let options = {
-					method: form.method,
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-					// encode FormData as x-www-form-urlencoded
-					body: new URLSearchParams(new FormData(form)).toString()
-				};
+				function remove_channel() {
+					let channels = document.getElementById("channels");
+					let channelInputs = channels.getElementsByTagName("input");
+					if (channelInputs.length <= 2 ) {
+						// length <= [node id, channel capacity]
+						return;
+					}
+					channels.removeChild(channels.children[channels.children.length - 1]);
+					channels.removeChild(channels.children[channels.children.length - 2]);
+				}
 
-				await fetch(resource, options)
-					.then(async (r) => {
-						console.debug(r);
-						if (!r.ok)
-							throw new Error('Something went wrong.');
+				document.querySelector("form").addEventListener("submit", async (event) => {
+					event.preventDefault();
+					let form = event.currentTarget;
+					let resource = form.action;
+					let options = {
+						method: form.method,
+						headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
+						// encode FormData as x-www-form-urlencoded
+						body: new URLSearchParams(new FormData(form)).toString()
+					};
 
-						let link = document.getElementById("bip21");
-						let bip21 = await r.text();
-						link.href = bip21;
-						link.innerHTML = bip21;
+					await fetch(resource, options)
+						.then(async (r) => {
+							console.debug(r);
+							if (!r.ok)
+								throw new Error('Something went wrong.');
 
-						var address = bip21.split("bitcoin:")[1].split("?")[0];
-						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${address}.png" width="256px" />`;
-						document.getElementById("queue").classList.add("invisible");
-						document.getElementById("queued").classList.remove("invisible");
-					})
-					.catch((err) => {
-						alert(err);
-					});
-				return false; // don't trigger form action attribute, we submitted through js
-			});
+							let link = document.getElementById("bip21");
+							let bip21 = await r.text();
+							link.href = bip21;
+							link.innerHTML = bip21;
+
+							var address = bip21.split("bitcoin:")[1].split("?")[0];
+							document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${address}.png" width="256px" />`;
+							document.getElementById("queue").classList.add("invisible");
+							document.getElementById("queued").classList.remove("invisible");
+						})
+						.catch((err) => {
+							alert(err);
+						});
+					return false; // don't trigger form action attribute, we submitted through js
+				});
 		</script>
 	</body>
 </html>
