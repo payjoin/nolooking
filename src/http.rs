@@ -47,10 +47,10 @@ async fn handle_web_req(
     endpoint: url::Url,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
-        (&Method::GET, "/pj") => handle_index().await,
-        (&Method::GET, path) if path.starts_with("/pj/static/") => handle_static(path).await,
+        (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
-        (&Method::POST, "/pj/schedule") => handle_pj_schedule(scheduler, endpoint, req).await,
+        (&Method::POST, "/schedule") => handle_schedule(scheduler, endpoint, req).await,
+        (&Method::GET, path) => handle_static(path).await,
         _ => handle_404().await,
     };
 
@@ -72,7 +72,9 @@ async fn handle_index() -> Result<Response<Body>, HttpError> {
 }
 
 async fn handle_static(path: &str) -> Result<Response<Body>, HttpError> {
-    let directory_traversal_vulnerable_path = &path[("/pj/static/".len())..];
+    // A path argument to PathBuf::join(&self, path) with a leading slash
+    // is treated as an absolute path, so we strip it in preparation.
+    let directory_traversal_vulnerable_path = &path[("/".len())..];
     match std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path)) {
         Ok(file) => Response::builder()
             .status(200)
@@ -104,7 +106,7 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
     Ok(Response::new(Body::from(proposal_psbt)))
 }
 
-async fn handle_pj_schedule(
+async fn handle_schedule(
     scheduler: Scheduler,
     endpoint: url::Url,
     req: Request<Body>,
