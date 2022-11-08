@@ -9,6 +9,12 @@ This server optimizes your channel opening from a remote wallet which supports P
 """
 
 [[param]]
+name = "bind_ip"
+type = "std::net::Ipv4Addr"
+doc = "The interface from which this server should listen (usually 127.0.0.1 or 0.0.0.0 in the case of docker)"
+default = "std::net::Ipv4Addr::new(127, 0, 0, 1)"
+
+[[param]]
 name = "bind_port"
 type = "u16"
 doc = "nolooking HTTP port to listen on"
