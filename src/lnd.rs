@@ -13,56 +13,6 @@ use tonic_lnd::rpc::{
 
 use crate::scheduler::ChannelId;
 
-#[derive(Debug)]
-pub enum LndError {
-    Generic(tonic_lnd::Error),
-    ConnectError(tonic_lnd::ConnectError),
-    ParseBitcoinAddressFailed(bitcoin::util::address::Error),
-    VersionRequestFailed(tonic_lnd::Error),
-    ParseVersionFailed { version: String, error: std::num::ParseIntError },
-    LNDTooOld(String),
-}
-
-impl fmt::Display for LndError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            LndError::Generic(error) => error.fmt(f),
-            LndError::ConnectError(error) => error.fmt(f),
-            LndError::ParseBitcoinAddressFailed(err) => err.fmt(f),
-            LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
-            LndError::ParseVersionFailed { version, error: _ } => {
-                write!(f, "Unparsable LND version '{}'", version)
-            }
-            LndError::LNDTooOld(version) => write!(
-                f,
-                "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
-                version
-            ),
-        }
-    }
-}
-
-impl std::error::Error for LndError {
-    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-        match self {
-            LndError::Generic(error) => Some(error),
-            LndError::ConnectError(error) => Some(error),
-            LndError::ParseBitcoinAddressFailed(error) => Some(error),
-            LndError::VersionRequestFailed(error) => Some(error),
-            LndError::ParseVersionFailed { version: _, error } => Some(error),
-            LndError::LNDTooOld(_) => None,
-        }
-    }
-}
-
-impl From<tonic_lnd::Error> for LndError {
-    fn from(value: tonic_lnd::Error) -> Self { LndError::Generic(value) }
-}
-
-impl From<tonic_lnd::ConnectError> for LndError {
-    fn from(value: tonic_lnd::ConnectError) -> Self { LndError::ConnectError(value) }
-}
-
 #[derive(Clone)]
 pub struct LndClient(Arc<AsyncMutex<tonic_lnd::Client>>);
 
@@ -211,4 +161,54 @@ impl LndClient {
         client.funding_state_step(req).await?;
         Ok(())
     }
+}
+
+#[derive(Debug)]
+pub enum LndError {
+    Generic(tonic_lnd::Error),
+    ConnectError(tonic_lnd::ConnectError),
+    ParseBitcoinAddressFailed(bitcoin::util::address::Error),
+    VersionRequestFailed(tonic_lnd::Error),
+    ParseVersionFailed { version: String, error: std::num::ParseIntError },
+    LNDTooOld(String),
+}
+
+impl fmt::Display for LndError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        match self {
+            LndError::Generic(e) => e.fmt(f),
+            LndError::ConnectError(e) => e.fmt(f),
+            LndError::ParseBitcoinAddressFailed(e) => e.fmt(f),
+            LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
+            LndError::ParseVersionFailed { version, error: _ } => {
+                write!(f, "Unparsable LND version '{}'", version)
+            }
+            LndError::LNDTooOld(version) => write!(
+                f,
+                "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
+                version
+            ),
+        }
+    }
+}
+
+impl std::error::Error for LndError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            LndError::Generic(e) => Some(e),
+            LndError::ConnectError(e) => Some(e),
+            LndError::ParseBitcoinAddressFailed(e) => Some(e),
+            LndError::VersionRequestFailed(e) => Some(e),
+            LndError::ParseVersionFailed { version: _, error } => Some(error),
+            LndError::LNDTooOld(_) => None,
+        }
+    }
+}
+
+impl From<tonic_lnd::Error> for LndError {
+    fn from(value: tonic_lnd::Error) -> Self { LndError::Generic(value) }
+}
+
+impl From<tonic_lnd::ConnectError> for LndError {
+    fn from(value: tonic_lnd::ConnectError) -> Self { LndError::ConnectError(value) }
 }
