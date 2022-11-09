@@ -94,8 +94,6 @@ impl LndClient {
     }
 
     /// Requests to open a channel with remote node, returning the psbt of the funding transaction.
-    ///
-    /// TODO: This should not panic, have proper error handling.
     pub async fn open_channel(
         &self,
         req: OpenChannelRequest,
@@ -110,9 +108,8 @@ impl LndClient {
             use tonic_lnd::rpc::open_status_update::Update;
             match update {
                 Update::PsbtFund(ready) => {
-                    // TODO: Do not panic here
-                    let psbt =
-                        PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt).unwrap();
+                    let psbt = PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt)
+                        .map_err(LndError::Decode)?;
                     eprintln!(
                         "PSBT received from LND for pending chan id {:?}: {:#?}",
                         pending_chan_id, psbt
@@ -121,8 +118,7 @@ impl LndClient {
 
                     return Ok(Some(psbt));
                 }
-                // TODO: do not panic
-                x => panic!("Unexpected update {:?}", x),
+                x => return Err(LndError::UnexpectedUpdate(x)),
             }
         }
         Ok(None)
@@ -167,8 +163,10 @@ impl LndClient {
 pub enum LndError {
     Generic(tonic_lnd::Error),
     ConnectError(tonic_lnd::ConnectError),
+    Decode(bitcoin::consensus::encode::Error),
     ParseBitcoinAddressFailed(bitcoin::util::address::Error),
     VersionRequestFailed(tonic_lnd::Error),
+    UnexpectedUpdate(tonic_lnd::rpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
     LNDTooOld(String),
 }
@@ -178,8 +176,10 @@ impl fmt::Display for LndError {
         match self {
             LndError::Generic(e) => e.fmt(f),
             LndError::ConnectError(e) => e.fmt(f),
+            LndError::Decode(e) => e.fmt(f),
             LndError::ParseBitcoinAddressFailed(e) => e.fmt(f),
             LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
+            LndError::UnexpectedUpdate(e) => write!(f, "Unexpected channel update {:?}", e),
             LndError::ParseVersionFailed { version, error: _ } => {
                 write!(f, "Unparsable LND version '{}'", version)
             }
@@ -197,8 +197,10 @@ impl std::error::Error for LndError {
         match self {
             LndError::Generic(e) => Some(e),
             LndError::ConnectError(e) => Some(e),
+            LndError::Decode(e) => Some(e),
             LndError::ParseBitcoinAddressFailed(e) => Some(e),
             LndError::VersionRequestFailed(e) => Some(e),
+            Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),
             LndError::LNDTooOld(_) => None,
         }
