@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
-use std::fmt;
 use std::sync::{Arc, Mutex};
+use std::{fmt, io};
 
 use bip78::receiver::{Proposal, UncheckedProposal};
 use bitcoin::consensus::Encodable;
@@ -305,7 +305,7 @@ impl Scheduler {
         let proposal_psbt = pj.add_channels_to_psbt(original_psbt, owned_vout, funding_txouts);
 
         let mut raw_psbt = Vec::new();
-        proposal_psbt.consensus_encode(&mut raw_psbt).unwrap();
+        proposal_psbt.consensus_encode(&mut raw_psbt)?;
         self.lnd.verify_funding(&raw_psbt, temporary_chan_ids).await?;
 
         // TODO explain why we're doing this superfluous bit or remove it
@@ -315,7 +315,7 @@ impl Scheduler {
         eprintln!("Proposal PSBT that will be returned: {:#?}", proposal_psbt);
 
         let mut psbt_bytes = Vec::new();
-        proposal_psbt.consensus_encode(&mut psbt_bytes).unwrap();
+        proposal_psbt.consensus_encode(&mut psbt_bytes)?;
         Ok(base64::encode(&mut psbt_bytes))
     }
 
@@ -369,6 +369,8 @@ pub enum SchedulerError {
     Lnd(LndError),
     /// Internal error that should not be shared
     Internal(&'static str),
+    // Could not decode psbt
+    Io(io::Error),
     /// Output Substitution is required to change the original output to a channel open
     OutputSubstitutionDisabled,
     /// No Original Psbt outputs match any [ScheduledPayJoin]
@@ -390,4 +392,8 @@ impl std::error::Error for SchedulerError {}
 
 impl From<LndError> for SchedulerError {
     fn from(v: LndError) -> Self { Self::Lnd(v) }
+}
+
+impl From<io::Error> for SchedulerError {
+    fn from(v: io::Error) -> Self { Self::Io(v) }
 }
