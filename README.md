@@ -80,7 +80,6 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 * To work with an *empty* LND wallet you need to use LND 0.14.2
 * Funds in LND or other wallet are not used, so it's not true PayJoin.
 * Invalid request can kill the whole server
-* `.unwraps()`s EVERYWHERE!
 
 ## License
 
