@@ -10,9 +10,9 @@ A new node can get connected in one transaction that opens inbound *and* outboun
 
 Nolooking leverages Pay-to-Endpoint ([BIP78](https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki) PayJoin) to negotiate a channel open for your lightning node from any BIP78 [supporting wallet](https://en.bitcoin.it/wiki/PayJoin_adoption). Previously, custom PSBT channel funding could only be done by [signing PSBTs manually](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md). A node running nolooking can open many new lightning channel with every inbound transaction, provided the payer supports BIP78. E.g. by using Sparrow wallet, BTCPayServer, or Wasabi; following the normal QR scan and payjoin payment flow. Read the article about [Lightning Powered PayJoin](https://chaincase.app/words/lightning-payjoin?ref=github) to hear how it can save your privacy, time, and money!
 
-## ⚠️ WARNING: ULTRA-EXPERIMENTAL SOFTWARE
+## ⚠️ WARNING: EXPERIMENTAL ALPHA
 
-❗️ **This project is pre-alpha quality and lacks basic checks. It is NOT fully BIP78-compliant** ❗️
+Use at your own risk. This crate has no professional independent Rust and Bitcoin security review yet.
 
 Any unexpecected node version will likely cause permanent loss of funds.
 
