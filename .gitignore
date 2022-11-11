@@ -1,4 +1,4 @@
 /target
 tests/compose/nginx/ssl/localhost-key.pem
 tests/compose/nginx/ssl/localhost.pem
-static/qr_codes/*.png
+public/qr_codes/*.png
