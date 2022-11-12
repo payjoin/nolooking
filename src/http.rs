@@ -86,24 +86,31 @@ async fn serve_public_file(path: &str) -> Result<Response<Body>, HttpError> {
 }
 
 async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<Body>, HttpError> {
-    dbg!(req.uri().query());
+    let result = {
+        dbg!(req.uri().query());
 
-    let headers = Headers(req.headers().to_owned());
-    let query = {
-        let uri = req.uri();
-        if let Some(query) = uri.query() {
-            Some(&query.to_owned());
-        }
-        None
+        let headers = Headers(req.headers().to_owned());
+        let query = {
+            let uri = req.uri();
+            if let Some(query) = uri.query() {
+                Some(&query.to_owned());
+            }
+            None
+        };
+        let body = req.into_body();
+        let bytes = hyper::body::to_bytes(body).await?;
+        let reader = &*bytes;
+        let original_request = UncheckedProposal::from_request(reader, query, headers)?;
+
+        let proposal_psbt = scheduler.propose_payjoin(original_request).await?;
+
+        Ok(Response::new(Body::from(proposal_psbt)))
     };
-    let body = req.into_body();
-    let bytes = hyper::body::to_bytes(body).await?;
-    let reader = &*bytes;
-    let original_request = UncheckedProposal::from_request(reader, query, headers)?;
-
-    let proposal_psbt = scheduler.propose_payjoin(original_request).await?;
-
-    Ok(Response::new(Body::from(proposal_psbt)))
+    if result.is_err() {
+        // propagate to websockets
+        println!("error");
+    }
+    result
 }
 
 async fn handle_schedule(
