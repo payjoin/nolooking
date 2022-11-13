@@ -2,9 +2,12 @@ use std::net::SocketAddr;
 use std::path::Path;
 
 use bip78::receiver::*;
+use futures::SinkExt;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use qrcode_generator::QrCodeEcc;
+use tokio::sync::broadcast::{Receiver, Sender};
+use tungstenite::{Message, Result};
 
 use crate::scheduler::{self, ScheduledPayJoin, Scheduler, SchedulerError};
 
@@ -24,31 +27,68 @@ fn create_qr_code(qr_string: &str, name: &str) {
 /// Serve requests to Schedule and execute PayJoins with given options.
 pub async fn serve(
     sched: Scheduler,
+    tx: Sender<Message>,
     bind_addr: SocketAddr,
     endpoint: url::Url,
 ) -> Result<(), hyper::Error> {
     let new_service = make_service_fn(move |_| {
         let sched = sched.clone();
         let endpoint = endpoint.clone();
+        let tx = tx.clone();
         async move {
-            let handler = move |req| handle_web_req(sched.clone(), req, endpoint.clone());
+            let handler =
+                move |req| handle_request(sched.clone(), tx.clone(), req, endpoint.clone());
             Ok::<_, hyper::Error>(service_fn(handler))
         }
     });
 
     let server = Server::bind(&bind_addr).serve(new_service);
     println!("Listening on: http://{}", bind_addr);
+
     server.await
 }
 
-async fn handle_web_req(
+async fn handle_request(
     scheduler: Scheduler,
+    tx: Sender<Message>,
+    mut req: Request<Body>,
+    endpoint: url::Url,
+) -> Result<Response<Body>, hyper::Error> {
+    if hyper_tungstenite::is_upgrade_request(&req) {
+        let (response, websocket) = hyper_tungstenite::upgrade(&mut req, None).unwrap();
+        tokio::spawn(async move {
+            if let Err(e) = handle_websocket(websocket, tx.subscribe()).await {
+                eprintln!("Error in websocket connection: {}", e);
+            }
+        });
+
+        // Return the response so the spawned future can continue.
+        Ok(response)
+    } else {
+        handle_http_req(scheduler, tx, req, endpoint).await
+    }
+}
+
+async fn handle_websocket(
+    websocket: hyper_tungstenite::HyperWebsocket,
+    mut rx: Receiver<Message>,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync + 'static>> {
+    let mut websocket = websocket.await?;
+    while let Ok(message) = rx.recv().await {
+        websocket.send(message).await?
+    }
+    Ok(())
+}
+
+async fn handle_http_req(
+    scheduler: Scheduler,
+    tx: Sender<Message>,
     req: Request<Body>,
     endpoint: url::Url,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => handle_index().await,
-        (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
+        (&Method::POST, "/pj") => handle_pj(scheduler, tx, req).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, endpoint, req).await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
@@ -85,8 +125,12 @@ async fn serve_public_file(path: &str) -> Result<Response<Body>, HttpError> {
     }
 }
 
-async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<Body>, HttpError> {
-    let result = {
+async fn handle_pj(
+    scheduler: Scheduler,
+    tx: Sender<Message>,
+    req: Request<Body>,
+) -> Result<Response<Body>, HttpError> {
+    let result: Result<_, HttpError> = {
         dbg!(req.uri().query());
 
         let headers = Headers(req.headers().to_owned());
@@ -106,9 +150,15 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
 
         Ok(Response::new(Body::from(proposal_psbt)))
     };
-    if result.is_err() {
-        // propagate to websockets
-        println!("error");
+    if let Err(err) = &result {
+        let msg = Message::text(err.to_string());
+        match tx.send(msg) {
+            Ok(_) => println!("{} sent to UI", err.to_string()),
+            Err(e) => {
+                dbg!("Message channel closed. Error dropped:");
+                dbg!(e); // TODO queue up the errors so they show up on the next connection.
+            }
+        };
     }
     result
 }

@@ -82,6 +82,15 @@
 
 		</main>
 		<script type="text/javascript">
+
+			(function() {
+				webSocket = new WebSocket(`ws://${window.location.hostname}:3000`);
+				webSocket.onmessage = (event) => {
+					console.log('onmessage');
+					alert(event.data);
+				}
+			})();
+
 			function add_channel() {
 				let channels = document.getElementById("channels");
 				let div = document.createElement('div');

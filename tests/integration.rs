@@ -181,10 +181,11 @@ mod integration {
             }
         });
 
+        let (tx, _) = tokio::sync::broadcast::channel(16);
         let bind_addr =
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
                 .into();
-        let nolooking_server = http::serve(scheduler, bind_addr, endpoint.clone());
+        let nolooking_server = http::serve(scheduler, tx, bind_addr, endpoint.clone());
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
