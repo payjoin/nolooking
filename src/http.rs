@@ -9,14 +9,14 @@ use qrcode_generator::QrCodeEcc;
 use crate::scheduler::{self, ScheduledPayJoin, Scheduler, SchedulerError};
 
 #[cfg(not(feature = "test_paths"))]
-const STATIC_DIR: &str = "/usr/share/nolooking/static";
+const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
 
 #[cfg(feature = "test_paths")]
-const STATIC_DIR: &str = "static";
+const PUBLIC_DIR: &str = "public";
 
-/// Create QR code and save to `STATIC_DIR/qr_codes/<name>.png`
+/// Create QR code and save to `PUBLIC_DIR/qr_codes/<name>.png`
 fn create_qr_code(qr_string: &str, name: &str) {
-    let filename = format!("{}/qr_codes/{}.png", STATIC_DIR, name);
+    let filename = format!("{}/qr_codes/{}.png", PUBLIC_DIR, name);
     qrcode_generator::to_png_to_file(qr_string, QrCodeEcc::Low, 512, filename.clone())
         .expect(&format!("Saved QR code: {}", filename));
 }
@@ -47,10 +47,10 @@ async fn handle_web_req(
     endpoint: url::Url,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
-        (&Method::GET, "/pj") => handle_index().await,
-        (&Method::GET, path) if path.starts_with("/pj/static/") => handle_static(path).await,
+        (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
-        (&Method::POST, "/pj/schedule") => handle_pj_schedule(scheduler, endpoint, req).await,
+        (&Method::POST, "/schedule") => handle_schedule(scheduler, endpoint, req).await,
+        (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
     };
 
@@ -67,13 +67,15 @@ async fn handle_404() -> Result<Response<Body>, HttpError> {
 }
 
 async fn handle_index() -> Result<Response<Body>, HttpError> {
-    let index = std::fs::read(Path::new(STATIC_DIR).join("index.html")).expect("can't open index");
+    let index = std::fs::read(Path::new(PUBLIC_DIR).join("index.html")).expect("can't open index");
     Ok(Response::new(Body::from(index)))
 }
 
-async fn handle_static(path: &str) -> Result<Response<Body>, HttpError> {
-    let directory_traversal_vulnerable_path = &path[("/pj/static/".len())..];
-    match std::fs::read(Path::new(STATIC_DIR).join(directory_traversal_vulnerable_path)) {
+async fn serve_public_file(path: &str) -> Result<Response<Body>, HttpError> {
+    // A path argument to PathBuf::join(&self, path) with a leading slash
+    // is treated as an absolute path, so we strip it in preparation.
+    let directory_traversal_vulnerable_path = &path[("/".len())..];
+    match std::fs::read(Path::new(PUBLIC_DIR).join(directory_traversal_vulnerable_path)) {
         Ok(file) => Response::builder()
             .status(200)
             .header("Cache-Control", "max-age=604800")
@@ -104,7 +106,7 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
     Ok(Response::new(Body::from(proposal_psbt)))
 }
 
-async fn handle_pj_schedule(
+async fn handle_schedule(
     scheduler: Scheduler,
     endpoint: url::Url,
     req: Request<Body>,
