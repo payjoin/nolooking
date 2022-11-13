@@ -1,6 +1,7 @@
 pub mod args;
 mod http;
 mod lnd;
+mod recommend;
 pub mod scheduler;
 
 use scheduler::Scheduler;
