@@ -79,7 +79,7 @@
 							<li class="recommendation-node-property"><span class="routing-node-address"></span></li>
 						</ul>
 						<div class="recommendation-node-button-wrapper">
-							<button type="button" onclick="add_recommended_node('routing_node')">Use</button>	
+							<button type="button" onclick="add_recommended_node('routing_node')">Use</button>
 						</div>
 					</div>
 					<div class="recommendation-node-wrapper invisible">
@@ -90,7 +90,18 @@
 							<li class="recommendation-node-property"><span class="edge-node-address"></span></li>
 						</ul>
 						<div class="recommendation-node-button-wrapper">
-							<button type="button" onclick="add_recommended_node('edge_node')">Use</button>	
+							<button type="button" onclick="add_recommended_node('edge_node')">Use</button>
+						</div>
+					</div>
+					<div class="recommendation-node-wrapper invisible">
+						<h2 class="wildcard-node-title">Wildcard Node</h2>
+						<ul class="recommendation-node-list">
+							<li class="recommendation-node-property"><span class="wildcard-node-alias"></span></li>
+							<li class="recommendation-node-property">&nbsp;Active Capacity:&nbsp;<span class="wildcard-node-capacity"></span> | &nbsp;Channel Count:&nbsp;<span class="wildcard-node-count"></span></li> 
+							<li class="recommendation-node-property"><span class="wildcard-node-address"></span></li>
+						</ul>
+						<div class="recommendation-node-button-wrapper">
+							<button type="button" onclick="add_recommended_node('nolooking_node')">Use</button>
 						</div>
 					</div>
 				</fieldset>
@@ -112,11 +123,14 @@
 		</main>
 		<script type="text/javascript">
 			let recommendations;
-			var channels = 1;
 			function add_channel(address=""){
-				var table = document.getElementById("channels");
+				var channels = document.getElementById("channels");
 				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				if (address == "") {
+					div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				} else {
+					div.innerHTML = `<input type="text" value="${address}" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				}
 				channels.appendChild(div.firstChild);
 				channels.appendChild(div.lastChild);
 			}
@@ -133,7 +147,7 @@
 			}
 
 			async function get_recommended_channels(){
-				document.getElementsByClassName('recommendation-button-wrapper')[0].classList.add('invisible')
+				document.getElementsByClassName('recommendation-button-wrapper')[0].innerHTML.text = "Refresh Recommended Channels"
 				try {
 					recommendations = await (await fetch('/recommended', {
 						method: 'GET',
@@ -141,6 +155,9 @@
 					document.getElementsByClassName('routing-node-alias')[0].innerHTML = recommendations.routing_node.alias
 					document.getElementsByClassName('routing-node-capacity')[0].innerHTML = recommendations.routing_node.capacity
 					document.getElementsByClassName('routing-node-count')[0].innerHTML = recommendations.routing_node.active_channel_count
+					document.getElementsByClassName('wildcard-node-alias')[0].innerHTML = recommendations.nolooking_node.alias
+					document.getElementsByClassName('wildcard-node-capacity')[0].innerHTML = recommendations.nolooking_node.capacity
+					document.getElementsByClassName('wildcard-node-count')[0].innerHTML = recommendations.nolooking_node.active_channel_count
 					document.getElementsByClassName('edge-node-alias')[0].innerHTML = recommendations.edge_node.alias
 					document.getElementsByClassName('edge-node-capacity')[0].innerHTML = recommendations.edge_node.capacity
 					document.getElementsByClassName('edge-node-count')[0].innerHTML = recommendations.edge_node.active_channel_count
