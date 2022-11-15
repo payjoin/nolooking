@@ -29,6 +29,18 @@
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
 				x-flex direction="column">
 				<fieldset>
+					<legend>Queue Inbound Channel</legend>
+					<x-grid columns="2">
+						<label for="inboundCapacity" span="1">Get receiving capacity:</label>
+						<label span="!"><input type="number" id="inboundCapacity" value="1000000" disabled span="1">sats</label><!-- has no name to exclude from request -->
+						<div span="1"></div>
+						<div span="1">
+							<label for="wantsInbound">Get inbound channel quote (~30,000 sats)</label>
+							<input type="checkbox" id="wantsInbound" name="wants_inbound_quote" value="true" checked>
+						</div>
+					</x-grid>
+				</fieldset>
+				<fieldset>
 					<legend>Queue Channels to Open</legend>
 					<x-grid columns=2>
 						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
@@ -36,7 +48,7 @@
 					<x-grid columns=2 id="channels">
 						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
 						<!-- LND enforces minimum 20k sats channel -->
-						<input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
+						<input type="number" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
 					</x-grid>
 					<p>
 						<x-flex>
@@ -61,8 +73,9 @@
 					<a href="" id="bip21"></a>
 					<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
 				</output>
+				<br>
+				<br>
 			</form>
-
 		</main>
 		<script type="text/javascript">
 			function add_channel() {
@@ -84,6 +97,10 @@
 				channels.removeChild(channels.lastElementChild);
 				channels.removeChild(channels.lastElementChild);
 			}
+
+			document.querySelector("#wantsInbound").addEventListener("input", async (event) => {
+				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
+			});
 
 			document.querySelector("form").addEventListener("submit", async (event) => {
 				event.preventDefault();
