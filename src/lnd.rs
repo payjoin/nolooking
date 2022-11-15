@@ -1,6 +1,7 @@
 use std::convert::TryFrom;
 use std::fmt;
 use std::num::TryFromIntError;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use bitcoin::consensus::Decodable;
@@ -99,6 +100,17 @@ impl LndClient {
         response.get_ref().address.parse::<Address>().map_err(LndError::ParseBitcoinAddressFailed)
     }
 
+    pub async fn get_p2p_address(&self) -> Result<P2PAddress, LndError> {
+        let mut client = self.0.lock().await;
+        let response = client
+            .lightning()
+            .get_info(tonic_lnd::lnrpc::GetInfoRequest { ..Default::default() })
+            .await?;
+        let p2p_address = P2PAddress::from_str(&response.into_inner().uris[0])
+            .map_err(LndError::ParseP2PAddressFailed)?;
+        Ok(p2p_address)
+    }
+
     /// Requests to open a channel with remote node, returning the psbt of the funding transaction.
     pub async fn open_channel(
         &self,
@@ -194,6 +206,7 @@ pub enum LndError {
     Decode(bitcoin::consensus::encode::Error),
     ParseBitcoinAddressFailed(bitcoin::util::address::Error),
     ParseAsSatFailed(TryFromIntError),
+    ParseP2PAddressFailed(ln_types::p2p_address::ParseError),
     VersionRequestFailed(tonic_lnd::Error),
     UnexpectedUpdate(tonic_lnd::lnrpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
@@ -208,6 +221,7 @@ impl fmt::Display for LndError {
             LndError::Decode(e) => e.fmt(f),
             LndError::ParseBitcoinAddressFailed(e) => e.fmt(f),
             LndError::ParseAsSatFailed(err) => err.fmt(f),
+            LndError::ParseP2PAddressFailed(e) => e.fmt(f),
             LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
             LndError::UnexpectedUpdate(e) => write!(f, "Unexpected channel update {:?}", e),
             LndError::ParseVersionFailed { version, error: _ } => {
@@ -230,6 +244,7 @@ impl std::error::Error for LndError {
             LndError::Decode(e) => Some(e),
             LndError::ParseBitcoinAddressFailed(e) => Some(e),
             LndError::ParseAsSatFailed(_) => None,
+            LndError::ParseP2PAddressFailed(e) => Some(e),
             LndError::VersionRequestFailed(e) => Some(e),
             Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),

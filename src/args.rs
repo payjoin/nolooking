@@ -60,5 +60,5 @@ where
 
     // ignore a remaining arguments
 
-    Ok(Some(ChannelBatch::new(channels, fee_rate)))
+    Ok(Some(ChannelBatch::new(channels, false, fee_rate)))
 }

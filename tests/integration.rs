@@ -162,7 +162,7 @@ mod integration {
         let fee_rate = 1;
         let mut channels = Vec::with_capacity(1);
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let batch = ChannelBatch::new(channels, fee_rate);
+        let batch = ChannelBatch::new(channels, false, fee_rate);
         let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
         let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         println!("{}", &bip21);
