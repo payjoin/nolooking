@@ -13,59 +13,16 @@ struct Nodes {
     pub capacity: i64,
 }
 
-use serde_json::Value;
-
 #[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     #[serde(rename = "public_key")]
     pub public_key: String,
     pub alias: String,
-    #[serde(rename = "first_seen")]
-    pub first_seen: i64,
-    #[serde(rename = "updated_at")]
-    pub updated_at: i64,
-    pub color: String,
     pub sockets: String,
-    #[serde(rename = "as_number")]
-    pub as_number: i64,
-    #[serde(rename = "city_id")]
-    pub city_id: Value,
-    #[serde(rename = "country_id")]
-    pub country_id: i64,
-    #[serde(rename = "subdivision_id")]
-    pub subdivision_id: Value,
-    pub longitude: f64,
-    pub latitude: f64,
-    #[serde(rename = "iso_code")]
-    pub iso_code: String,
-    #[serde(rename = "as_organization")]
-    pub as_organization: String,
-    pub city: Value,
-    pub country: Country,
-    pub subdivision: Value,
     #[serde(rename = "active_channel_count")]
     pub active_channel_count: i64,
     pub capacity: String,
-    #[serde(rename = "opened_channel_count")]
-    pub opened_channel_count: i64,
-    #[serde(rename = "closed_channel_count")]
-    pub closed_channel_count: i64,
-}
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Country {
-    pub de: String,
-    pub en: String,
-    pub es: String,
-    pub fr: String,
-    pub ja: String,
-    #[serde(rename = "pt-BR")]
-    pub pt_br: String,
-    pub ru: String,
-    #[serde(rename = "zh-CN")]
-    pub zh_cn: String,
 }
 
 #[derive(Serialize, Deserialize)]
