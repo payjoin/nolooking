@@ -13,6 +13,7 @@ use url::Url;
 
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
+use crate::lsp::LspError;
 
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledChannel {
@@ -37,16 +38,17 @@ impl ScheduledChannel {
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ChannelBatch {
     channels: Vec<ScheduledChannel>,
+    wants_inbound_quote: bool,
     fee_rate: u64,
 }
 
 impl ChannelBatch {
-    pub fn new(channels: Vec<ScheduledChannel>, fee_rate: u64) -> Self {
-        Self { channels, fee_rate }
+    pub fn new(channels: Vec<ScheduledChannel>, wants_inbound_quote: bool, fee_rate: u64) -> Self {
+        Self { channels, wants_inbound_quote, fee_rate }
     }
 
     pub fn channels(&self) -> &Vec<ScheduledChannel> { &self.channels }
-
+    pub fn wants_inbound_quote(&self) -> bool { self.wants_inbound_quote }
     pub fn fee_rate(&self) -> u64 { self.fee_rate }
 }
 
@@ -58,11 +60,21 @@ pub struct ScheduledPayJoin {
     wallet_amount: bitcoin::Amount,
     channels: Vec<ScheduledChannel>,
     fee_rate: u64,
+    quote: Option<crate::lsp::Quote>,
 }
 
 impl ScheduledPayJoin {
-    pub fn new(wallet_amount: bitcoin::Amount, batch: ChannelBatch) -> Self {
-        Self { wallet_amount, channels: batch.channels().clone(), fee_rate: batch.fee_rate() }
+    pub fn new(
+        wallet_amount: bitcoin::Amount,
+        batch: ChannelBatch,
+        quote: Option<crate::lsp::Quote>,
+    ) -> Self {
+        Self {
+            wallet_amount,
+            channels: batch.channels().clone(),
+            fee_rate: batch.fee_rate(),
+            quote,
+        }
     }
 
     fn total_amount(&self) -> bitcoin::Amount {
@@ -254,7 +266,15 @@ impl Scheduler {
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
         let required_reserve = self.lnd.required_reserve(batch.channels().len() as u32).await?;
-        let pj = &ScheduledPayJoin::new(required_reserve, batch);
+        let inbound_quote = if batch.wants_inbound_quote() {
+            match self.request_quote().await {
+                Ok(quote) => Some(quote),
+                Err(e) => return Err(e),
+            }
+        } else {
+            None
+        };
+        let pj = &ScheduledPayJoin::new(required_reserve, batch, inbound_quote.clone());
 
         if self.insert_payjoin(&bitcoin_addr, pj) {
             Ok((
@@ -264,6 +284,17 @@ impl Scheduler {
         } else {
             Err(SchedulerError::Internal("lnd provided duplicate bitcoin addresses"))
         }
+    }
+
+    /// Get a quote for an inbound channel from the nolooking service.
+    /// If the service is unavailable, just return None.
+    async fn request_quote(&self) -> Result<crate::lsp::Quote, SchedulerError> {
+        let p2p_address = self.lnd.get_p2p_address().await?;
+        let refund_address = self.lnd.get_new_bech32_address().await?;
+        let quote = crate::lsp::request_quote(&p2p_address, &refund_address)
+            .await
+            .map_err(SchedulerError::Lsp)?;
+        Ok(quote)
     }
 
     /// Given an Original PSBT request, respond with a PayJoin Proposal,
@@ -390,6 +421,9 @@ pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> Str
 
 #[derive(Debug)]
 pub enum SchedulerError {
+    /// Error at the lightning service provider controller
+    Lsp(LspError),
+    /// Error at the lightning node controller
     Lnd(LndError),
     /// Internal error that should not be shared
     Internal(&'static str),

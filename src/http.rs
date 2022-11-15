@@ -40,6 +40,7 @@ async fn handle_web_req(
     scheduler: Scheduler,
     req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
+    dbg!(&req);
     let result = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
@@ -50,7 +51,10 @@ async fn handle_web_req(
 
     match result {
         Ok(resp) => Ok(resp),
-        Err(err) => err.into_response(),
+        Err(err) => {
+            dbg!(&err);
+            err.into_response()
+        }
     }
 }
 
