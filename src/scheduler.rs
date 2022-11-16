@@ -53,11 +53,11 @@ impl ChannelBatch {
 }
 
 /// A prepared channel batch.
-///  wallet_amount = RequiredReserve from LND set just before returning a bip21 uri.
+///  reserve_deposit = RequiredReserve from LND set just before returning a bip21 uri.
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledPayJoin {
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
-    wallet_amount: bitcoin::Amount,
+    reserve_deposit: bitcoin::Amount,
     channels: Vec<ScheduledChannel>,
     fee_rate: u64,
     quote: Option<crate::lsp::Quote>,
@@ -65,12 +65,12 @@ pub struct ScheduledPayJoin {
 
 impl ScheduledPayJoin {
     pub fn new(
-        wallet_amount: bitcoin::Amount,
+        reserve_deposit: bitcoin::Amount,
         batch: ChannelBatch,
         quote: Option<crate::lsp::Quote>,
     ) -> Self {
         Self {
-            wallet_amount,
+            reserve_deposit,
             channels: batch.channels().clone(),
             fee_rate: batch.fee_rate(),
             quote,
@@ -82,7 +82,7 @@ impl ScheduledPayJoin {
             .iter()
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
-            + self.wallet_amount
+            + self.reserve_deposit
             + self.fees()
     }
 
@@ -96,21 +96,21 @@ impl ScheduledPayJoin {
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
 
-        let wallet_amount = self.wallet_amount();
+        let reserve_deposit = self.reserve_deposit();
 
         let owned_txout_value = our_output.value;
 
-        (total_channel_amount + self.fees() + wallet_amount).as_sat() == owned_txout_value
+        (total_channel_amount + self.fees() + reserve_deposit).as_sat() == owned_txout_value
     }
 
-    /// This externally exposes [ScheduledPayJoin]::wallet_amount.
-    pub fn wallet_amount(&self) -> bitcoin::Amount { self.wallet_amount }
+    /// This externally exposes [ScheduledPayJoin]::reserve_deposit.
+    pub fn reserve_deposit(&self) -> bitcoin::Amount { self.reserve_deposit }
 
     /// Calculate the absolute miner fee this [ScheduledPayJoin] pays
     /// TODO !!!! BROKEN !!! calculate fee rate based on size of inputs & outputs
     fn fees(&self) -> bitcoin::Amount {
         let channel_count = self.channels.len() as u64;
-        let has_additional_output = self.wallet_amount != bitcoin::Amount::ZERO;
+        let has_additional_output = self.reserve_deposit != bitcoin::Amount::ZERO;
 
         let additional_vsize = if has_additional_output {
             // OP_0 OP_PUSHBYTES_32 <32 bytes>
@@ -159,7 +159,6 @@ impl ScheduledPayJoin {
         } else {
             Ok(funding_txos)
         }
-
     }
 
     pub fn generate_open_channel_requests(
@@ -209,7 +208,7 @@ impl ScheduledPayJoin {
         &self,
         original_psbt: PartiallySignedTransaction,
         owned_vout: usize,
-        funding_txos: I,
+        funding_txos: I, //
     ) -> PartiallySignedTransaction
     where
         I: IntoIterator<Item = TxOut>,
@@ -220,11 +219,11 @@ impl ScheduledPayJoin {
         let mut proposal_psbt = original_psbt.clone();
         // determine whether we replace original psbt's owned output
         // or whether we change the value to be wallet amount
-        if self.wallet_amount() == bitcoin::Amount::ZERO {
+        if self.reserve_deposit() == bitcoin::Amount::ZERO {
             assert_eq!(funding_txout.value, self.channels[0].amount.as_sat());
             proposal_psbt.unsigned_tx.output[owned_vout] = funding_txout;
         } else {
-            proposal_psbt.unsigned_tx.output[owned_vout].value = self.wallet_amount().as_sat();
+            proposal_psbt.unsigned_tx.output[owned_vout].value = self.reserve_deposit().as_sat();
             proposal_psbt.unsigned_tx.output.push(funding_txout)
         }
 
@@ -349,6 +348,7 @@ impl Scheduler {
 
         // create and send `funding_created` to all responding lightning nodes
         let proposal_psbt = pj.add_channels_to_psbt(original_psbt, owned_vout, funding_txouts);
+        //        let proposal_psbt = pj.add_inbound_payment_to_psbt(proposal_psbt, owned_vout, funding_txouts);
 
         let mut raw_psbt = Vec::new();
         proposal_psbt.consensus_encode(&mut raw_psbt)?;
