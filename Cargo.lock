@@ -1710,9 +1710,9 @@ dependencies = [
 
 [[package]]
 name = "tonic_lnd"
-version = "0.4.0"
+version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c925762f1b3c9d9cdce9ae81edeb1bcc95457c881e9a7d57f2c2ad43e505f44"
+checksum = "06980b0432b8265253942fedb197c29f62e901f010aef6855bfc27576f533903"
 dependencies = [
  "hex",
  "prost 0.9.0",

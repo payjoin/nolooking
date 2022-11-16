@@ -13,12 +13,12 @@ mod integration {
     use hyper::client::HttpConnector;
     use hyper_tls::HttpsConnector;
     use ln_types::P2PAddress;
+    use nolooking::http;
     use nolooking::lnd::LndClient;
-    use nolooking::scheduler::{ScheduledChannel, ScheduledPayJoin, Scheduler};
-    use nolooking::{http, scheduler};
+    use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
     use tokio_native_tls::native_tls;
-    use tonic_lnd::rpc::{ConnectPeerRequest, LightningAddress};
+    use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn std::error::Error>> {
@@ -37,9 +37,9 @@ mod integration {
         // wait for bitcoind to start and for lnd to be fully initialized with secrets
 
         // sanity check
-        let timeout = 6;
+        let mut timeout = 6;
         let bitcoin_rpc = loop {
-            if --timeout < 0 {
+            if timeout < 0 {
                 panic!("can't connect to bitcoin rpc");
             }
             sleep(Duration::from_secs(1));
@@ -52,6 +52,7 @@ mod integration {
                     Err(e) => println!("Attempting to contact btcrpc: {}", e),
                 }
             }
+            timeout -= 1;
         };
 
         // merchant lnd nolooking configuration
@@ -59,9 +60,9 @@ mod integration {
         let cert_file = format!("{}/merchant-tls.cert", &tmp_path).to_string();
         let macaroon_file = format!("{}/merchant-admin.macaroon", &tmp_path).to_string();
 
-        let timeout = 6;
+        timeout = 6;
         let mut merchant_client = loop {
-            if --timeout < 0 {
+            if timeout < 0 {
                 panic!("can't connect to merchant_client");
             }
             sleep(Duration::from_secs(1));
@@ -86,11 +87,12 @@ mod integration {
             let client = tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await;
 
             if let Ok(mut client) = client {
-                match client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await {
+                match client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await {
                     Ok(_) => break client,
                     Err(e) => println!("Attempting to connect lnd: {}", e),
                 }
             }
+            timeout -= 1;
         };
 
         // conf to merchant
@@ -127,7 +129,8 @@ mod integration {
         let mut peer_client =
             tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await.unwrap();
 
-        let info = peer_client.get_info(tonic_lnd::rpc::GetInfoRequest {}).await.unwrap();
+        let info =
+            peer_client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await.unwrap();
 
         let peer_id_pubkey = info.into_inner().identity_pubkey;
         println!("peer_id_pubkey: {:#?}", peer_id_pubkey);
@@ -138,6 +141,7 @@ mod integration {
         println!("SLEPT");
         // connect one to the next
         let connected = merchant_client
+            .lightning()
             .connect_peer(ConnectPeerRequest {
                 addr: Some(LightningAddress {
                     pubkey: peer_id_pubkey.clone(),
@@ -157,23 +161,21 @@ mod integration {
 
         let fee_rate = 1;
         let mut channels = Vec::with_capacity(1);
-        let wallet_amount = bitcoin::Amount::from_sat(10000);
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let pj = ScheduledPayJoin::new(wallet_amount, channels, fee_rate);
-        let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap());
-        let address = scheduler.schedule_payjoin(&pj).await.unwrap();
-
-        let bip21 = scheduler::format_bip21(address, pj.total_amount(), endpoint.clone());
+        let batch = ChannelBatch::new(channels, fee_rate);
+        let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
+        let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         println!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
-            let channel_update =
-                peer_client.subscribe_channel_events(tonic_lnd::rpc::ChannelEventSubscription {});
+            let channel_update = peer_client
+                .lightning()
+                .subscribe_channel_events(tonic_lnd::lnrpc::ChannelEventSubscription {});
             let mut res = channel_update.await.unwrap().into_inner();
             loop {
                 if let Ok(Some(channel_event)) = res.message().await {
                     if channel_event.r#type()
-                        == tonic_lnd::rpc::channel_event_update::UpdateType::OpenChannel
+                        == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel
                     {
                         break;
                     }
@@ -184,7 +186,7 @@ mod integration {
         let bind_addr =
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
                 .into();
-        let nolooking_server = http::serve(scheduler, bind_addr, endpoint.clone());
+        let nolooking_server = http::serve(scheduler, bind_addr);
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port

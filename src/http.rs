@@ -6,7 +6,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use qrcode_generator::QrCodeEcc;
 
-use crate::scheduler::{self, ScheduledPayJoin, Scheduler, SchedulerError};
+use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(not(feature = "test_paths"))]
 const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
@@ -22,16 +22,11 @@ fn create_qr_code(qr_string: &str, name: &str) {
 }
 
 /// Serve requests to Schedule and execute PayJoins with given options.
-pub async fn serve(
-    sched: Scheduler,
-    bind_addr: SocketAddr,
-    endpoint: url::Url,
-) -> Result<(), hyper::Error> {
+pub async fn serve(sched: Scheduler, bind_addr: SocketAddr) -> Result<(), hyper::Error> {
     let new_service = make_service_fn(move |_| {
         let sched = sched.clone();
-        let endpoint = endpoint.clone();
         async move {
-            let handler = move |req| handle_web_req(sched.clone(), req, endpoint.clone());
+            let handler = move |req| handle_web_req(sched.clone(), req);
             Ok::<_, hyper::Error>(service_fn(handler))
         }
     });
@@ -44,12 +39,11 @@ pub async fn serve(
 async fn handle_web_req(
     scheduler: Scheduler,
     req: Request<Body>,
-    endpoint: url::Url,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
-        (&Method::POST, "/schedule") => handle_schedule(scheduler, endpoint, req).await,
+        (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
     };
@@ -108,17 +102,14 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
 
 async fn handle_schedule(
     scheduler: Scheduler,
-    endpoint: url::Url,
     req: Request<Body>,
 ) -> Result<Response<Body>, HttpError> {
     let bytes = hyper::body::to_bytes(req.into_body()).await?;
     // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
     let conf = serde_qs::Config::new(2, false);
-    let request: ScheduledPayJoin = conf.deserialize_bytes(&bytes)?;
+    let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
 
-    let address = scheduler.schedule_payjoin(&request).await?;
-    let total_amount = request.total_amount();
-    let uri = scheduler::format_bip21(address.clone(), total_amount, endpoint);
+    let (uri, address) = scheduler.schedule_payjoin(request).await?;
     let mut response = Response::new(Body::from(uri.clone()));
     create_qr_code(&uri, &address.to_string());
     response.headers_mut().insert(hyper::header::CONTENT_TYPE, "text/plain".parse()?);

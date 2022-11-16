@@ -1,15 +1,18 @@
+use std::convert::TryFrom;
 use std::fmt;
+use std::num::TryFromIntError;
 use std::sync::Arc;
 
 use bitcoin::consensus::Decodable;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::Address;
+use bitcoin::{Address, Amount};
 use ln_types::P2PAddress;
 use tokio::sync::Mutex as AsyncMutex;
-use tonic_lnd::rpc::funding_transition_msg::Trigger;
-use tonic_lnd::rpc::{
+use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
+use tonic_lnd::lnrpc::{
     FundingPsbtVerify, FundingTransitionMsg, OpenChannelRequest, OpenStatusUpdate,
 };
+use tonic_lnd::walletrpc::RequiredReserveRequest;
 
 use crate::scheduler::ChannelId;
 
@@ -31,7 +34,8 @@ impl LndClient {
 
     pub async fn new(mut client: tonic_lnd::Client) -> Result<Self, LndError> {
         let response = client
-            .get_info(tonic_lnd::rpc::GetInfoRequest {})
+            .lightning()
+            .get_info(tonic_lnd::lnrpc::GetInfoRequest {})
             .await
             .map_err(LndError::VersionRequestFailed)?;
         let version_str = &response.get_ref().version;
@@ -70,12 +74,12 @@ impl LndClient {
     pub async fn ensure_connected(&self, node: P2PAddress) -> Result<(), LndError> {
         let pubkey = node.node_id.to_string();
         let peer_addr =
-            tonic_lnd::rpc::LightningAddress { pubkey, host: node.as_host_port().to_string() };
+            tonic_lnd::lnrpc::LightningAddress { pubkey, host: node.as_host_port().to_string() };
         let connect_req =
-            tonic_lnd::rpc::ConnectPeerRequest { addr: Some(peer_addr), perm: true, timeout: 60 };
+            tonic_lnd::lnrpc::ConnectPeerRequest { addr: Some(peer_addr), perm: true, timeout: 60 };
 
         let mut client = self.0.lock().await;
-        match client.connect_peer(connect_req).await {
+        match client.lightning().connect_peer(connect_req).await {
             Err(err) if err.message().starts_with("already connected to peer") => Ok(()),
             result => {
                 result?;
@@ -88,7 +92,8 @@ impl LndClient {
     pub async fn get_new_bech32_address(&self) -> Result<Address, LndError> {
         let mut client = self.0.lock().await;
         let response = client
-            .new_address(tonic_lnd::rpc::NewAddressRequest { r#type: 0, account: String::new() })
+            .lightning()
+            .new_address(tonic_lnd::lnrpc::NewAddressRequest { r#type: 0, account: String::new() })
             .await?;
         response.get_ref().address.parse::<Address>().map_err(LndError::ParseBitcoinAddressFailed)
     }
@@ -99,13 +104,13 @@ impl LndClient {
         req: OpenChannelRequest,
     ) -> Result<Option<PartiallySignedTransaction>, LndError> {
         let client = &mut *self.0.lock().await;
-        let mut response = client.open_channel(req).await?;
+        let mut response = client.lightning().open_channel(req).await?;
         let stream = response.get_mut();
 
         while let Some(OpenStatusUpdate { pending_chan_id, update: Some(update) }) =
             stream.message().await?
         {
-            use tonic_lnd::rpc::open_status_update::Update;
+            use tonic_lnd::lnrpc::open_status_update::Update;
             match update {
                 Update::PsbtFund(ready) => {
                     let psbt = PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt)
@@ -154,8 +159,22 @@ impl LndClient {
 
     pub async fn funding_state_step(&self, req: FundingTransitionMsg) -> Result<(), LndError> {
         let client = &mut *self.0.lock().await;
-        client.funding_state_step(req).await?;
+        client.lightning().funding_state_step(req).await?;
         Ok(())
+    }
+
+    pub async fn required_reserve(
+        &self,
+        additional_public_channels: u32,
+    ) -> Result<Amount, LndError> {
+        let client = &mut *self.0.lock().await;
+        let res = client
+            .wallet()
+            .required_reserve(RequiredReserveRequest { additional_public_channels })
+            .await?;
+        let amount = u64::try_from(res.get_ref().required_reserve)
+            .map_err(LndError::ParseReserveAsSatFailed)?;
+        Ok(Amount::from_sat(amount))
     }
 }
 
@@ -165,8 +184,9 @@ pub enum LndError {
     ConnectError(tonic_lnd::ConnectError),
     Decode(bitcoin::consensus::encode::Error),
     ParseBitcoinAddressFailed(bitcoin::util::address::Error),
+    ParseReserveAsSatFailed(TryFromIntError),
     VersionRequestFailed(tonic_lnd::Error),
-    UnexpectedUpdate(tonic_lnd::rpc::open_status_update::Update),
+    UnexpectedUpdate(tonic_lnd::lnrpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
     LNDTooOld(String),
 }
@@ -178,6 +198,7 @@ impl fmt::Display for LndError {
             LndError::ConnectError(e) => e.fmt(f),
             LndError::Decode(e) => e.fmt(f),
             LndError::ParseBitcoinAddressFailed(e) => e.fmt(f),
+            LndError::ParseReserveAsSatFailed(err) => err.fmt(f),
             LndError::VersionRequestFailed(_) => write!(f, "failed to get LND version"),
             LndError::UnexpectedUpdate(e) => write!(f, "Unexpected channel update {:?}", e),
             LndError::ParseVersionFailed { version, error: _ } => {
@@ -199,6 +220,7 @@ impl std::error::Error for LndError {
             LndError::ConnectError(e) => Some(e),
             LndError::Decode(e) => Some(e),
             LndError::ParseBitcoinAddressFailed(e) => Some(e),
+            LndError::ParseReserveAsSatFailed(_) => None,
             LndError::VersionRequestFailed(e) => Some(e),
             Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),

@@ -2,7 +2,7 @@ use std::ffi::OsString;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::scheduler::{ScheduledChannel, ScheduledPayJoin};
+use crate::scheduler::{ChannelBatch, ScheduledChannel};
 
 /// CLI argument errors.
 #[derive(Debug)]
@@ -16,7 +16,7 @@ pub enum ArgError {
     /// Parse bitcoin amount error
     InvalidBitcoinAmount(bitcoin::util::amount::ParseAmountError),
     /// Wallet amount error
-    InvalidWalletAmount(bitcoin::util::amount::ParseAmountError),
+    HangingArgument(String),
 }
 
 impl fmt::Display for ArgError {
@@ -28,8 +28,8 @@ impl fmt::Display for ArgError {
 
 impl std::error::Error for ArgError {}
 
-/// Parses arguments in `[fee_rate] [(<p2p_addr>, <sats_amount>)...] [wallet_amount]`
-pub fn parse_args<A>(args: A) -> Result<Option<ScheduledPayJoin>, ArgError>
+/// Parses arguments in `[fee_rate] [(<p2p_addr>, <sats_amount>)...]`
+pub fn parse_args<A>(args: A) -> Result<Option<ChannelBatch>, ArgError>
 where
     A: Iterator<Item = OsString>,
 {
@@ -54,21 +54,11 @@ where
     // parse scheduled channel arguments: pairs of (addr, amount)
     let mut channels = Vec::with_capacity(args.len() / 2);
 
-    // the remaining single argument is the wallet amount in satoshis (if any)
-    let wallet_amount = loop {
-        match (args.next(), args.next()) {
-            // we have a pair of arguments, interpret it as a scheduled channel (p2p addr, amount)
-            (Some(addr), Some(amount)) => {
-                channels.push(ScheduledChannel::from_args(addr, amount)?);
-            }
-            // if there is a remaining single argument, it is the wallet amount
-            (Some(amount), None) =>
-                break bitcoin::Amount::from_str_in(amount, bitcoin::Denomination::Satoshi)
-                    .map_err(ArgError::InvalidWalletAmount)?,
-            // if there is no remaining single argument, the wallet amount is 0
-            _ => break bitcoin::Amount::ZERO,
-        }
-    };
+    while let (Some(addr), Some(amount)) = (args.next(), args.next()) {
+        channels.push(ScheduledChannel::from_args(addr, amount)?);
+    }
 
-    Ok(Some(ScheduledPayJoin::new(wallet_amount, channels, fee_rate)))
+    // ignore a remaining arguments
+
+    Ok(Some(ChannelBatch::new(channels, fee_rate)))
 }
