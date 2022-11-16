@@ -83,6 +83,10 @@ impl ScheduledPayJoin {
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
             + self.reserve_deposit
+            + match &self.quote {
+                Some(quote) => Amount::from_sat(quote.price.into()),
+                None => Amount::ZERO,
+            }
             + self.fees()
     }
 
@@ -95,12 +99,14 @@ impl ScheduledPayJoin {
             .iter()
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
-
         let reserve_deposit = self.reserve_deposit();
+        let quote_amount = match &self.quote {
+            Some(quote) => Amount::from_sat(quote.price.into()),
+            None => Amount::ZERO,
+        };
 
-        let owned_txout_value = our_output.value;
-
-        (total_channel_amount + self.fees() + reserve_deposit).as_sat() == owned_txout_value
+        (total_channel_amount + reserve_deposit + quote_amount + self.fees()).as_sat()
+            == our_output.value
     }
 
     /// This externally exposes [ScheduledPayJoin]::reserve_deposit.
@@ -211,10 +217,10 @@ impl ScheduledPayJoin {
     }
 
     // gen_funding_created AKA
-    fn add_channels_to_psbt<I>(
+    fn substitue_psbt_outputs<I>(
         &self,
         original_psbt: PartiallySignedTransaction,
-        owned_vout: usize,
+        owned_vout: usize, // the original vout paying us. This is the one we can substitute
         funding_txos: I,
     ) -> PartiallySignedTransaction
     where
@@ -224,12 +230,13 @@ impl ScheduledPayJoin {
         let funding_txout = iter.next().unwrap(); // we assume there is at least 1.
 
         let mut proposal_psbt = original_psbt.clone();
-        // determine whether we replace original psbt's owned output
-        // or whether we change the value to be wallet amount
+
+        // determine whether we substitute channel opens for the original psbt's ownedoutput to us
         if self.reserve_deposit() == bitcoin::Amount::ZERO {
             assert_eq!(funding_txout.value, self.channels[0].amount.as_sat());
             proposal_psbt.unsigned_tx.output[owned_vout] = funding_txout;
         } else {
+            // or keep it and adjust the amount for the on-chain reserve deposit
             proposal_psbt.unsigned_tx.output[owned_vout].value = self.reserve_deposit().as_sat();
             proposal_psbt.unsigned_tx.output.push(funding_txout)
         }
@@ -319,6 +326,8 @@ impl Scheduler {
         &self,
         original_req: UncheckedProposal,
     ) -> Result<String, SchedulerError> {
+        use std::str::FromStr;
+
         if original_req.is_output_substitution_disabled() {
             return Err(SchedulerError::OutputSubstitutionDisabled);
         }
@@ -353,11 +362,26 @@ impl Scheduler {
         // initiate multiple `open_channel` requests and return the vector:
         // Vec<(temporary_channel_id:, funding_txout:)>
         let open_chan_results = pj.multi_open_channel(&self.lnd).await?;
-        let funding_txouts = open_chan_results.iter().map(|(_, txo)| txo.clone());
+        let mut txouts_to_substitute: Vec<TxOut> =
+            open_chan_results.iter().map(|(_, txo)| txo.clone()).collect();
         let temporary_chan_ids = open_chan_results.iter().map(|(id, _)| *id);
 
+        // add the output paying for inbound
+        if let Some(quote) = &pj.quote {
+            let inbound_txo = bitcoin::blockdata::transaction::TxOut {
+                value: quote.price.into(),
+                script_pubkey: bitcoin::Address::from_str(&quote.address)
+                    .map_err(|_| SchedulerError::Internal("Could not parse address from LSP quote. Try again or don't request an inbound channel"))?
+                    .script_pubkey(),
+            };
+            txouts_to_substitute.push(inbound_txo);
+        };
+
+        // TODO ensure privacy preserving txo ordering. should be responsibility of payjoin lib
+
         // create and send `funding_created` to all responding lightning nodes
-        let proposal_psbt = pj.add_channels_to_psbt(original_psbt, owned_vout, funding_txouts);
+        let proposal_psbt =
+            pj.substitue_psbt_outputs(original_psbt, owned_vout, txouts_to_substitute);
 
         let mut raw_psbt = Vec::new();
         proposal_psbt.consensus_encode(&mut raw_psbt)?;
