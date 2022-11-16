@@ -63,17 +63,17 @@ p {
 }
 
 main form {
-    max-width: 750px;
-    margin: 0 auto;
-    padding: 2rem
+    background: var(--black);
+    border-radius: var(--radius);
+    padding: 2rem;
+}
+
+form > * {
+    padding-top: 2rem;
 }
 
 #qrcode {
     margin: 2rem;
-}
-
-fieldset {
-    background-color: black;
 }
 
 input {

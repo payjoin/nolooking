@@ -29,27 +29,6 @@
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
 				x-flex direction="column">
 				<fieldset>
-					<legend>Config</legend>
-					<div>
-						<label for="reserve">
-							<details>
-								<summary>
-									Anchor Reserve Deposit (sats)
-								</summary>
-								New nodes need a reserve output of at least 10,000 sats. Set this to 10,000 fo a new node. 0 is fine thereafter.
-							</details>
-						</label>
-						<input type="number" name="wallet_amount" id="wallet" list="defaultReserveSats" min="0" step="1" value="0">
-						<datalist id="defaultReserveSats">
-							<option value="10000"></option>
-						</datalist>
-					</div>
-					<div>
-						<label for="fee_rate">Maximum fee rate (sats/vB)</label>
-						<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
-					</div>
-				</fieldset>
-				<fieldset>
 					<legend>Queue Channels to Open</legend>
 					<!-- channels -->
 					<x-grid columns=2 id="channels">
@@ -65,7 +44,10 @@
 						</x-flex>
 					</p>
 				</fieldset>
-				<br>
+				<div>
+					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
+					<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
+				</div>
 				<div id="queue">
 					<x-grid columns=2>
 						<button type="submit" class="float-right" span="2">Generate Funding Request</button>
