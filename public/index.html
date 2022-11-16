@@ -113,11 +113,14 @@
 		<script type="text/javascript">
 			const SATS_PER_BTC = 100_000_000
 			let recommendations;
-			var channels = 1;
 			function add_channel(address=""){
-				var table = document.getElementById("channels");
+				const channels = document.getElementById("channels");
 				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				if (address == "") {
+					div.innerHTML = `<input type="text" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				} else {
+					div.innerHTML = `<input type="text" value="${address}" name="channels[${channels.length + 1}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${channels.length + 1}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				}
 				channels.appendChild(div.firstChild);
 				channels.appendChild(div.lastChild);
 			}
