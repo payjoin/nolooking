@@ -78,18 +78,12 @@ impl ScheduledPayJoin {
     }
 
     fn total_amount(&self) -> bitcoin::Amount {
-        let fees = calculate_fees(
-            self.channels.len() as u64,
-            self.fee_rate,
-            self.wallet_amount != bitcoin::Amount::ZERO,
-        );
-
         self.channels
             .iter()
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
             + self.wallet_amount
-            + fees
+            + self.fees()
     }
 
     /// Check that amounts make sense for original(ish) psbt.
@@ -101,21 +95,32 @@ impl ScheduledPayJoin {
             .iter()
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
-        // TODO: replace with sheduled_payjoin.fees()
-        let fees = calculate_fees(
-            self.channels.len() as u64,
-            self.fee_rate,
-            self.wallet_amount() != bitcoin::Amount::ZERO,
-        );
+
         let wallet_amount = self.wallet_amount();
 
         let owned_txout_value = our_output.value;
 
-        (total_channel_amount + fees + wallet_amount).as_sat() == owned_txout_value
+        (total_channel_amount + self.fees() + wallet_amount).as_sat() == owned_txout_value
     }
 
     /// This externally exposes [ScheduledPayJoin]::wallet_amount.
     pub fn wallet_amount(&self) -> bitcoin::Amount { self.wallet_amount }
+
+    /// Calculate the absolute miner fee this [ScheduledPayJoin] pays
+    /// TODO !!!! BROKEN !!! calculate fee rate based on size of inputs & outputs
+    fn fees(&self) -> bitcoin::Amount {
+        let channel_count = self.channels.len() as u64;
+        let has_additional_output = self.wallet_amount != bitcoin::Amount::ZERO;
+
+        let additional_vsize = if has_additional_output {
+            // OP_0 OP_PUSHBYTES_32 <32 bytes>
+            channel_count * (8 + 1 + 1 + 32)
+        } else {
+            (channel_count - 1) * (8 + 1 + 1 + 32) + 12
+        };
+
+        bitcoin::Amount::from_sat(self.fee_rate * additional_vsize)
+    }
 
     pub async fn multi_open_channel(
         &self,
@@ -154,6 +159,7 @@ impl ScheduledPayJoin {
         } else {
             Ok(funding_txos)
         }
+
     }
 
     pub fn generate_open_channel_requests(
@@ -393,20 +399,6 @@ impl Scheduler {
         }
         Ok(())
     }
-}
-
-pub fn calculate_fees(
-    channel_count: u64,
-    fee_rate: u64,
-    has_additional_output: bool,
-) -> bitcoin::Amount {
-    let additional_vsize = if has_additional_output {
-        channel_count * (8 + 1 + 1 + 32)
-    } else {
-        (channel_count - 1) * (8 + 1 + 1 + 32) + 12
-    };
-
-    bitcoin::Amount::from_sat(fee_rate * additional_vsize)
 }
 
 pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> String {
