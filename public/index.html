@@ -133,7 +133,7 @@
 							<br>
 							<ul>
 								<li>${recommendations[node_type].alias}</li>
-								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
+								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity / SATS_PER_BTC} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
 							</ul>
 							<div>
 								<button type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
