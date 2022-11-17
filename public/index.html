@@ -120,12 +120,11 @@
 							throw new Error('Something went wrong.');
 
 						let link = document.getElementById("bip21");
-						let bip21 = await r.text();
-						link.href = bip21;
-						link.innerHTML = bip21;
+						let r_json = await r.json();
+						link.href = r_json.bip21;
+						link.innerHTML = r_json.bip21;
 
-						var address = bip21.split("bitcoin:")[1].split("?")[0];
-						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${address}.png" width="256px" />`;
+						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${r_json.address}.png" width="256px" />`;
 						document.getElementById("queue").classList.add("invisible");
 						document.getElementById("queued").classList.remove("invisible");
 					})

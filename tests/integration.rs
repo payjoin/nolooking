@@ -164,7 +164,7 @@ mod integration {
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
         let batch = ChannelBatch::new(channels, false, fee_rate);
         let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
-        let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
+        let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         println!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {

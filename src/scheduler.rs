@@ -13,7 +13,7 @@ use url::Url;
 
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
-use crate::lsp::LspError;
+use crate::lsp::{LspError, Quote};
 
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledChannel {
@@ -280,7 +280,7 @@ impl Scheduler {
         &self,
         batch: ChannelBatch,
         // TODO return bip21::Url Seems broken or incompatible with bip78 now
-    ) -> Result<(String, Address), SchedulerError> {
+    ) -> Result<(String, Address, Option<Quote>), SchedulerError> {
         self.test_connections(&batch.channels()).await?;
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
@@ -299,6 +299,7 @@ impl Scheduler {
             Ok((
                 format_bip21(bitcoin_addr.clone(), pj.total_amount(), self.endpoint.clone()),
                 bitcoin_addr,
+                inbound_quote,
             ))
         } else {
             Err(SchedulerError::Internal("lnd provided duplicate bitcoin addresses"))

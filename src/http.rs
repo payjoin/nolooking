@@ -6,6 +6,7 @@ use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
 use qrcode_generator::QrCodeEcc;
 
+use crate::lsp::Quote;
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(not(feature = "test_paths"))]
@@ -104,6 +105,13 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
     Ok(Response::new(Body::from(proposal_psbt)))
 }
 
+#[derive(Clone, Deserialize, Serialize, Debug)]
+pub struct ScheduleResponse {
+    bip21: String,
+    address: String,
+    quote: Option<Quote>,
+}
+
 async fn handle_schedule(
     scheduler: Scheduler,
     req: Request<Body>,
@@ -113,10 +121,15 @@ async fn handle_schedule(
     let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
     let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
 
-    let (uri, address) = scheduler.schedule_payjoin(request).await?;
-    let mut response = Response::new(Body::from(uri.clone()));
+    let (uri, address, quote) = scheduler.schedule_payjoin(request).await?;
+
+    let schedule_response =
+        ScheduleResponse { bip21: uri.clone(), address: address.to_string(), quote };
+    let mut response = Response::new(Body::from(
+        serde_json::to_string(&schedule_response).map_err(HttpError::SerdeJson)?,
+    ));
     create_qr_code(&uri, &address.to_string());
-    response.headers_mut().insert(hyper::header::CONTENT_TYPE, "text/plain".parse()?);
+    response.headers_mut().insert(hyper::header::CONTENT_TYPE, "application/json".parse()?);
     Ok(response)
 }
 
@@ -132,7 +145,8 @@ pub enum HttpError {
     Http(hyper::http::Error),
     InvalidHeaderValue(hyper::header::InvalidHeaderValue),
     Scheduler(SchedulerError),
-    Serde(serde_qs::Error),
+    SerdeQs(serde_qs::Error),
+    SerdeJson(serde_json::Error),
 }
 
 impl HttpError {
@@ -153,7 +167,8 @@ impl HttpError {
             | Self::Http(_)
             | Self::InvalidHeaderValue(_)
             | Self::Scheduler(_)
-            | Self::Serde(_) => StatusCode::BAD_REQUEST,
+            | Self::SerdeQs(_)
+            | Self::SerdeJson(_) => StatusCode::BAD_REQUEST,
         };
 
         // TODO: Avoid writing error directly to HTTP response (bad security if public facing)
@@ -188,5 +203,5 @@ impl From<SchedulerError> for HttpError {
 }
 
 impl From<serde_qs::Error> for HttpError {
-    fn from(e: serde_qs::Error) -> Self { Self::Serde(e) }
+    fn from(e: serde_qs::Error) -> Self { Self::SerdeQs(e) }
 }
