@@ -36,6 +36,7 @@
 						<div span="1"></div>
 						<div span="1">
 							<label for="wantsInbound">Get inbound channel quote (~30,000 sats)</label>
+							<input type="hidden" id="hiddenWantsInbound" value="false" name="wants_inbound_quote">
 							<input type="checkbox" id="wantsInbound" name="wants_inbound_quote" value="true" checked>
 						</div>
 					</x-grid>
@@ -68,13 +69,15 @@
 				</div>
 				<output id="queued" class="invisible">
 					<h2>PayJoin here to open these channels</h2>
-					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</code>
+					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</p>
 					<div id="qrcode" class="center-axyz"></div>
 					<a href="" id="bip21"></a>
-					<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+					<p>Please pay using <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+					<br>
+					<div id="lsp-response" class="invisible">
+						<!-- populated on POST /schedule response -->
+					</div>
 				</output>
-				<br>
-				<br>
 			</form>
 		</main>
 		<script type="text/javascript">
@@ -104,6 +107,12 @@
 
 			document.querySelector("form").addEventListener("submit", async (event) => {
 				event.preventDefault();
+
+				// Disable hiddens if checkboxes are checked
+				if(document.getElementById("wantsInbound").checked) {
+					document.getElementById('hiddenWantsInbound').disabled = true;
+				}
+
 				let form = event.currentTarget;
 				let resource = form.action;
 				let options = {
@@ -127,6 +136,20 @@
 						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${r_json.address}.png" width="256px" />`;
 						document.getElementById("queue").classList.add("invisible");
 						document.getElementById("queued").classList.remove("invisible");
+						let lspResponse = document.getElementById("lsp-response")
+
+						if (r_json.quote) {
+							lspResponse.classList.remove("invisible");
+							let quoteTemplate =`
+<h3>Inbound Channel Quote:</h3>
+<p>
+	This request includes a ${r_json.quote.price} sats transfer to lease ${r_json.quote.size} sats of inbound capacity for ${r_json.quote.duration} ${r_json.quote.duration == 1 ? "month": "months"}.
+	<br>
+	A refund address from your lightning node's on-chain wallet is already registered in case of failure.
+</p>
+`
+							lspResponse.innerHTML = quoteTemplate;
+						}
 					})
 					.catch((err) => {
 						alert(err);
