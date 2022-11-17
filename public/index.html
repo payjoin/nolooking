@@ -66,34 +66,14 @@
 					</p>
 					<div>
 				</fieldset>
-				<fieldset class="recommendation-wrapper">
+				<div class="recommendation-wrapper">
 					<legend>Get Recommended Outbound Channels</legend>
 					<div class="recommendation-button-wrapper">
 						<button type="button" onclick="get_recommended_channels()">Get Recommended Channels</button>
 					</div>
-					<div class="recommendation-node-wrapper invisible">
-						<h2 class="routing-node-title">Routing Node</h2>
-						<ul class="recommendation-node-list">
-							<li class="recommendation-node-property"><span class="routing-node-alias"></span></li>
-							<li class="recommendation-node-property">&nbsp;Active Capacity:&nbsp;<span class="routing-node-capacity"></span> | &nbsp;Channel Count:&nbsp;<span class="routing-node-count"></span></li> 
-							<li class="recommendation-node-property"><span class="routing-node-address"></span></li>
-						</ul>
-						<div class="recommendation-node-button-wrapper">
-							<button type="button" onclick="add_recommended_node('routing_node')">Use</button>	
-						</div>
+					<div id="recommendations">
 					</div>
-					<div class="recommendation-node-wrapper invisible">
-						<h2 class="routing-node-title">Edge Node</h2>
-						<ul class="recommendation-node-list">
-							<li class="recommendation-node-property"><span class="edge-node-alias"></span></li>
-							<li class="recommendation-node-property">&nbsp;Active Capacity:&nbsp;<span class="edge-node-capacity"></span> | &nbsp;Channel Count:&nbsp;<span class="edge-node-count"></span></li> 
-							<li class="recommendation-node-property"><span class="edge-node-address"></span></li>
-						</ul>
-						<div class="recommendation-node-button-wrapper">
-							<button type="button" onclick="add_recommended_node('edge_node')">Use</button>	
-						</div>
-					</div>
-				</fieldset>
+				</div>
 				<br>
 				<div id="queue">
 					<x-grid columns=2>
@@ -142,16 +122,30 @@
 					recommendations = await (await fetch('/recommended', {
 						method: 'GET',
 					})).json()
-					document.getElementsByClassName('routing-node-alias')[0].innerHTML = recommendations.routing_node.alias
-					document.getElementsByClassName('routing-node-capacity')[0].innerHTML = `₿${recommendations.routing_node.capacity / SATS_PER_BTC}`
-					document.getElementsByClassName('routing-node-count')[0].innerHTML = recommendations.routing_node.active_channel_count
-					document.getElementsByClassName('edge-node-alias')[0].innerHTML = recommendations.edge_node.alias
-					document.getElementsByClassName('edge-node-capacity')[0].innerHTML = `₿${recommendations.edge_node.capacity / SATS_PER_BTC}`
-					document.getElementsByClassName('edge-node-count')[0].innerHTML = recommendations.edge_node.active_channel_count
-					Array.from(document.getElementsByClassName('recommendation-node-wrapper')).forEach(el => el.classList.remove('invisible'));
+
+					for (var node_type in recommendations) {
+						console.log(node_type);
+						let text = `
+						<div>
+							<h3>${node_type}</h3>
+							<small>a well connected node that is reliable for payments</small>
+							<br>
+							<br>
+							<ul>
+								<li>${recommendations[node_type].alias}</li>
+								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
+							</ul>
+							<div>
+								<button type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
+							</div>
+						</div>
+						<br>
+						`;
+						document.getElementById("recommendations").insertAdjacentHTML("beforeend", text);
+					}
 				} catch (error) {
 					console.error(error)
-					alert("Something went wrong. Please try again.")
+					alert("Sorry, can't connect to node sources right now.")
 				}
 			}
 

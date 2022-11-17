@@ -38,13 +38,9 @@ h2 {
 
 
 h3 {
+    font-size: 1.25em;
     font-weight: 600;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
-    );
-    color: transparent;
+    color: orange;
     background-clip: text;
     -webkit-background-clip: text;
 }
@@ -94,37 +90,17 @@ input {
     white-space: nowrap;
 }
 
-/** Recommendation Components **/
 .recommendation-wrapper {
-    min-width: 706px;
-    width: 100%;
-}
-
-.recommendation-node-wrapper {
     padding: 20px;
+    background-color: black;
+    border-radius: 25px;
 }
 
-.routing-node-address {
-    font-size: .8em;
-    color: #105fb0;
-}
-
-.recommendation-node-list {
+ul {
     list-style-type: none;
-    padding: 0;
-    margin: 0;
 }
 
-.recommendation-node-property {
-    font-weight: 1000;
-    font-size: 1.1em;
-    text-shadow: 10px 10px 15px rgb(0, 0, 0);
-    padding: 0px 0px 0px 10px;
-    color: whitesmoke;
-    background-clip: text;
-    -webkit-background-clip: text; 
-}
-
-.recommendation-node-button-wrapper {
-    padding: 0px 0px 0px 10px; 
+small {
+    font-family: 'Courier New', Courier, monospace;
+    color: orange;
 }
