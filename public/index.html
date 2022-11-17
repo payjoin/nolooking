@@ -97,8 +97,8 @@
 					// length <= [node id, channel capacity]
 					return;
 				}
-				channels.removeChild(channels.lastChild);
-				channels.removeChild(channels.lastChild);
+				channels.removeChild(channels.lastElementChild);
+				channels.removeChild(channels.lastElementChild);
 			}
 
 			document.querySelector("form").addEventListener("submit", async (event) => {
