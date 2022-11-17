@@ -107,17 +107,24 @@ impl ScheduledPayJoin {
     pub fn reserve_deposit(&self) -> bitcoin::Amount { self.reserve_deposit }
 
     /// Calculate the absolute miner fee this [ScheduledPayJoin] pays
-    /// TODO !!!! BROKEN !!! calculate fee rate based on size of inputs & outputs
     fn fees(&self) -> bitcoin::Amount {
         let channel_count = self.channels.len() as u64;
-        let has_additional_output = self.reserve_deposit != bitcoin::Amount::ZERO;
+        let has_reserve_deposit = self.reserve_deposit != bitcoin::Amount::ZERO;
 
-        let additional_vsize = if has_additional_output {
-            // OP_0 OP_PUSHBYTES_32 <32 bytes>
-            channel_count * (8 + 1 + 1 + 32)
+        let mut additional_vsize = if has_reserve_deposit {
+            // <8 invariant bytes = 4 version + 4 locktime>
+            //  + 2 variant bytes for input.len + output.len such that each len < 252
+            //  + OP_0 OP_PUSHBYTES_32 <32 byte script>
+            channel_count * (8 + 1 + 1 + 34)
         } else {
-            (channel_count - 1) * (8 + 1 + 1 + 32) + 12
+            // substitute 1 p2wsh channel (34 bytes) open for 1 p2wpkh reserve output (22 bytes)
+            // that's + 12 bytes
+            (channel_count - 1) * (8 + 1 + 1 + 34) + 12
         };
+
+        if self.quote.is_some() {
+            additional_vsize = additional_vsize + (8 + 1 + 1 + 22); // P2WPKH (OP_0 OP_PUSHBYTES_20 <20 byte script)
+        }
 
         bitcoin::Amount::from_sat(self.fee_rate * additional_vsize)
     }
