@@ -106,7 +106,7 @@ async fn handle_schedule(
 ) -> Result<Response<Body>, HttpError> {
     let bytes = hyper::body::to_bytes(req.into_body()).await?;
     // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
-    let conf = serde_qs::Config::new(2, false);
+    let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
     let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
 
     let (uri, address) = scheduler.schedule_payjoin(request).await?;
