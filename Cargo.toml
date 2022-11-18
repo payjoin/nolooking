@@ -28,7 +28,7 @@ configure_me = "0.4.0"
 qrcode-generator = "4.1.6"
 
 [build-dependencies]
-configure_me_codegen = "0.4.1"
+configure_me_codegen = "0.4.3"
 
 [dev-dependencies]
 bitcoincore-rpc = "0.15.0"
