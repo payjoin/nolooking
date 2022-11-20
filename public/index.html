@@ -29,6 +29,19 @@
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
 				x-flex direction="column">
 				<fieldset>
+					<legend>Queue Inbound Channel</legend>
+					<x-grid columns="2">
+						<label for="inboundCapacity" span="1">Get receiving capacity:</label>
+						<label span="!"><input type="number" id="inboundCapacity" value="1000000" disabled span="1">sats</label><!-- has no name to exclude from request -->
+						<div span="1"></div>
+						<div span="1">
+							<label for="wantsInbound">Get inbound channel quote (~30,000 sats)</label>
+							<input type="hidden" id="hiddenWantsInbound" value="false" name="wants_inbound_quote">
+							<input type="checkbox" id="wantsInbound" name="wants_inbound_quote" value="true" checked>
+						</div>
+					</x-grid>
+				</fieldset>
+				<fieldset>
 					<legend>Queue Channels to Open</legend>
 					<x-grid columns=2>
 						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
@@ -36,7 +49,7 @@
 					<x-grid columns=2 id="channels">
 						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
 						<!-- LND enforces minimum 20k sats channel -->
-						<input type="number" id="input_sats" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
+						<input type="number" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
 					</x-grid>
 					<p>
 						<x-flex>
@@ -56,13 +69,16 @@
 				</div>
 				<output id="queued" class="invisible">
 					<h2>PayJoin here to open these channels</h2>
-					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</code>
+					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</p>
 					<div id="qrcode" class="center-axyz"></div>
 					<a href="" id="bip21"></a>
-					<p>Please use <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+					<p>Please pay using <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+					<br>
+					<div id="lsp-response" class="invisible">
+						<!-- populated on POST /schedule response -->
+					</div>
 				</output>
 			</form>
-
 		</main>
 		<script type="text/javascript">
 			function add_channel() {
@@ -85,8 +101,18 @@
 				channels.removeChild(channels.lastElementChild);
 			}
 
+			document.querySelector("#wantsInbound").addEventListener("input", async (event) => {
+				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
+			});
+
 			document.querySelector("form").addEventListener("submit", async (event) => {
 				event.preventDefault();
+
+				// Disable hiddens if checkboxes are checked
+				if(document.getElementById("wantsInbound").checked) {
+					document.getElementById('hiddenWantsInbound').disabled = true;
+				}
+
 				let form = event.currentTarget;
 				let resource = form.action;
 				let options = {
@@ -103,14 +129,27 @@
 							throw new Error('Something went wrong.');
 
 						let link = document.getElementById("bip21");
-						let bip21 = await r.text();
-						link.href = bip21;
-						link.innerHTML = bip21;
+						let r_json = await r.json();
+						link.href = r_json.bip21;
+						link.innerHTML = r_json.bip21;
 
-						var address = bip21.split("bitcoin:")[1].split("?")[0];
-						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${address}.png" width="256px" />`;
+						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${r_json.address}.png" width="256px" />`;
 						document.getElementById("queue").classList.add("invisible");
 						document.getElementById("queued").classList.remove("invisible");
+						let lspResponse = document.getElementById("lsp-response")
+
+						if (r_json.quote) {
+							lspResponse.classList.remove("invisible");
+							let quoteTemplate =`
+<h3>Inbound Channel Quote:</h3>
+<p>
+	This request includes a ${r_json.quote.price} sats transfer to lease ${r_json.quote.size} sats of inbound capacity for ${r_json.quote.duration} ${r_json.quote.duration == 1 ? "month": "months"}.
+	<br>
+	A refund address from your lightning node's on-chain wallet is already registered in case of failure.
+</p>
+`
+							lspResponse.innerHTML = quoteTemplate;
+						}
 					})
 					.catch((err) => {
 						alert(err);
