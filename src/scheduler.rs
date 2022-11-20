@@ -254,7 +254,10 @@ impl Scheduler {
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
         let required_reserve = self.lnd.required_reserve(batch.channels().len() as u32).await?;
-        let pj = &ScheduledPayJoin::new(required_reserve, batch);
+        let wallet_balance = self.lnd.wallet_balance().await?;
+        // Only add reserve if the wallet needs it
+        let missing_reserve = required_reserve.checked_sub(wallet_balance).unwrap_or_default();
+        let pj = &ScheduledPayJoin::new(missing_reserve, batch);
 
         if self.insert_payjoin(&bitcoin_addr, pj) {
             Ok((
