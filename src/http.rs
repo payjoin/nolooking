@@ -1,10 +1,10 @@
 use std::net::SocketAddr;
 use std::path::Path;
 
-use log::info;
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use log::info;
 use qrcode_generator::QrCodeEcc;
 
 use crate::lsp::Quote;

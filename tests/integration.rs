@@ -13,13 +13,12 @@ mod integration {
     use hyper::header::CONTENT_TYPE;
     use hyper::HeaderMap;
     use ln_types::P2PAddress;
+    use log::{debug, error};
     use nolooking::http;
     use nolooking::lnd::LndClient;
     use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
-    use log::{warn, info, error, debug};
-
 
     #[tokio::test]
     async fn test() -> Result<(), Box<dyn std::error::Error>> {

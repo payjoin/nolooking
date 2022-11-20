@@ -8,7 +8,7 @@ use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut};
 use ln_types::P2PAddress;
-use log::{info, error};
+use log::{error, info};
 use tonic_lnd::lnrpc::OpenChannelRequest;
 use url::Url;
 
