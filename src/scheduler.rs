@@ -296,7 +296,7 @@ impl Scheduler {
         } else {
             None
         };
-        let pj = &ScheduledPayJoin::new(required_reserve, batch, inbound_quote.clone());
+        let pj = &ScheduledPayJoin::new(missing_reserve, batch, inbound_quote.clone());
 
         if self.insert_payjoin(&bitcoin_addr, pj) {
             Ok((
