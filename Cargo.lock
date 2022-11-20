@@ -818,6 +818,7 @@ dependencies = [
  "configure_me_codegen",
  "hyper",
  "ln-types",
+ "log",
  "qrcode-generator",
  "rand",
  "rcgen",
