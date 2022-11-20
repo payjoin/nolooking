@@ -10,6 +10,8 @@ spec = "config_spec.toml"
 
 [features]
 test_paths = []
+#  If enabled, the crate will compile and statically link to a vendored copy of OpenSSL. This feature has no effect on Windows and macOS, where OpenSSL is not used.
+vendored = ["hyper-tls/vendored"]
 
 [dependencies]
 bitcoin = { version = "0.28.1", features = ["use-serde"] }
