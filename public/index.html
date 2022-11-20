@@ -56,11 +56,17 @@
 							<button type="button" class="is-circle colored-button" onclick="remove_channel()">-</button>
 						</x-flex>
 					</p>
+					<div>
 				</fieldset>
-				<div>
-					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
-					<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
+				<div class="recommendation-wrapper">
+					<legend>Get Recommended Outbound Channels</legend>
+					<div class="recommendation-button-wrapper">
+						<button type="button" onclick="get_recommended_channels()">Get Recommended Channels</button>
+					</div>
+					<div id="recommendations">
+					</div>
 				</div>
+				<br>
 				<div id="queue">
 					<x-grid columns=2>
 						<button type="submit" class="float-right colored-button" span="2">Generate Funding Request</button>
@@ -80,6 +86,8 @@
 			</form>
 		</main>
 		<script type="text/javascript">
+			const SATS_PER_BTC = 100_000_000
+			let recommendations;
 			function random_style() {
 				// Generate random colors for background, --primary and --secondary
 				// RGB triplet of (32 + $[0, 128]) for some base color, which is then reordered for the secondary color
@@ -94,12 +102,16 @@
 				document.querySelector(':root').style.setProperty('--primary', "rgb(" + shifted + ")");
 				document.querySelector(':root').style.setProperty('--secondary', "rgb(" + color_triplet + ")");
 			}
-
-			function add_channel() {
-				let channels = document.getElementById("channels");
+			
+			function add_channel(address=""){
 				let indexToAdd = Math.floor(channels.children.length/2)
+				const channels = document.getElementById("channels");
 				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				if (address == "") {
+					div.innerHTML = `<input type="text" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				} else {
+					div.innerHTML = `<input type="text" value="${address}" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
+				}
 				channels.appendChild(div.firstChild);
 				channels.appendChild(div.lastChild);
 			}
