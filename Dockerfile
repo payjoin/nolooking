@@ -28,7 +28,7 @@ RUN echo "Preparing to cargo build for x86_64 (${TARGETARCH})"
 RUN apt-get update && apt-get install -y musl-tools musl-dev
 # Add our x86 target to rust, then compile and install
 RUN rustup target add x86_64-unknown-linux-musl
-RUN cargo --config "net.git-fetch-with-cli=true" install --target x86_64-unknown-linux-musl --path .
+RUN cargo --config "net.git-fetch-with-cli=true" install -F vendored  --target x86_64-unknown-linux-musl --path .
 
 # ARM
 FROM builder AS branch-version-arm64
@@ -40,7 +40,7 @@ RUN rustup target add aarch64-unknown-linux-musl
 ENV CC_aarch64_unknown_linux_musl=clang
 ENV AR_aarch64_unknown_linux_musl=llvm-ar
 ENV CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_RUSTFLAGS="-Clink-self-contained=yes -Clinker=rust-lld"
-RUN cargo --config "net.git-fetch-with-cli=true" install --target aarch64-unknown-linux-musl --path .
+RUN cargo --config "net.git-fetch-with-cli=true" install -F vendored --target aarch64-unknown-linux-musl --path .
 
 # We build for either x86_64 or ARM from above options using the docker $TARGETARCH
 FROM branch-version-${TARGETARCH} AS chosen_builder
