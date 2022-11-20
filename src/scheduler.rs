@@ -262,17 +262,18 @@ fn temporary_channel_id() -> ChannelId { rand::random() }
 pub struct Scheduler {
     lnd: LndClient,
     endpoint: Url,
+    lsp_endpoint: String,
     pjs: Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>, // payjoins mapped by owned `scriptPubKey`s
 }
 
 impl Scheduler {
     /// New [Scheduler].
-    pub fn new(lnd: LndClient, endpoint: Url) -> Self {
-        Self { lnd, endpoint, pjs: Default::default() }
+    pub fn new(lnd: LndClient, endpoint: Url, lsp_endpoint: String) -> Self {
+        Self { lnd, endpoint, lsp_endpoint, pjs: Default::default() }
     }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests")))
+        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), config.endpoint.parse().expect("Malformed secure lsp endpoint in config file. Expecting a https url")))
     }
 
     /// Schedules a payjoin.
@@ -314,7 +315,7 @@ impl Scheduler {
     async fn request_quote(&self) -> Result<crate::lsp::Quote, SchedulerError> {
         let p2p_address = self.lnd.get_p2p_address().await?;
         let refund_address = self.lnd.get_new_bech32_address().await?;
-        let quote = crate::lsp::request_quote(&p2p_address, &refund_address)
+        let quote = crate::lsp::request_quote(&p2p_address, &refund_address, &self.lsp_endpoint)
             .await
             .map_err(SchedulerError::Lsp)?;
         Ok(quote)

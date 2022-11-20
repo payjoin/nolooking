@@ -19,14 +19,15 @@ pub struct Quote {
 pub async fn request_quote(
     p2p_address: &P2PAddress,
     refund_address: &Address,
+    lsp_endpoint: &String,
 ) -> Result<Quote, LspError> {
     let https = hyper_tls::HttpsConnector::new();
     let client = Client::builder().build::<_, hyper::Body>(https);
     // get address
     // suggest capacity
     let base_uri = format!(
-        "https://nolooking.chaincase.app/api/request-inbound?nodeid={}&capacity={}&duration={}&refund_address={}",
-        p2p_address, 1000000, 1, refund_address
+        "{}/request-inbound?nodeid={}&capacity={}&duration={}&refund_address={}",
+        lsp_endpoint, p2p_address, 1000000, 1, refund_address
     ); // TODO confirm p2p_address is urlencoded
     let url: Uri = base_uri.parse().map_err(InternalLspError::Uri)?;
     let req =
