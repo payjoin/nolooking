@@ -1,5 +1,16 @@
 :root {
     --primary: #d38105;
+    --seconday: rgb(117, 117, 44);
+    --text-image-1: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(255, 0, 0),
+        rgb(255, 251, 0)
+    );
+    --text-image-2: conic-gradient(
+        from 0deg at 0% 0%,
+        rgb(255, 174, 0),
+        rgb(0, 255, 242)
+    );
 }
 
 html, body {
@@ -14,11 +25,7 @@ h1 {
     font-weight: 1000;
     font-size: 3em;
     text-shadow: 10px 10px 15px rgb(0, 0, 0);
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 0, 0),
-        rgb(255, 251, 0)
-    );
+    background-image: var(--text-image-1);
     color: transparent;
     background-clip: text;
     -webkit-background-clip: text;
@@ -26,11 +33,7 @@ h1 {
 
 h2 {
     font-weight: 600;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
-    );
+    background-image: var(--text-image-2);
     color: transparent;
     background-clip: text;
     -webkit-background-clip: text;
@@ -39,11 +42,7 @@ h2 {
 
 h3 {
     font-weight: 600;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
-    );
+    background-image: var(--text-image-2);
     color: transparent;
     background-clip: text;
     -webkit-background-clip: text;
@@ -51,11 +50,7 @@ h3 {
 
 p {
     font-weight: 400;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(175, 26, 26),
-        rgba(208, 255, 0, 0.986)
-    );
+    background-image: var(--text-image-1);
     color: transparent;
     background-clip: text;
     -webkit-background-clip: text;
@@ -86,7 +81,7 @@ input {
 .warning {
     text-align: center;
     border: 1px solid var(--codeBorderColor,var(--inputBorderColor));
-    color: yellow;
+    color: var(--secondary);;
     border-radius: var(--inputRadius);
     font-size: 1.3rem;
     font-family: var(--fontMono);
