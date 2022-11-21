@@ -4,7 +4,6 @@
 		<meta name="viewport" content="width=device-width, initial-scale=1.0">
 		<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
 		<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/selekkt-skelet@latest/css/skelet.min.css">
-		<!-- having trouble getting the right path on both umbrel and local.. -->
 		<link rel="stylesheet" href="style.css">
 		<link rel="apple-touch-icon" sizes="180x180" href="favicons/apple-touch-icon.png">
 		<link rel="icon" type="image/png" sizes="32x32" href="favicons/favicon-32x32.png">
@@ -21,21 +20,21 @@
 		<br>
 		<br>
 		<header class="center">
-			<a href="https://nolooking.chaincase.app/" target="_blank" style="text-decoration:none"><h1>👻 &nbsp;Lightning PayJoin&nbsp; 👻</h1></a>
-			<h3 style="color: orange;">🎃 Halloween Alpha [experimental] | Avoid sp👀ks</h3>
-			<h2>Queue batches of lightning channels to open in a single transaction</h2>
+			<a href="https://nolooking.chaincase.app/" target="_blank" style="text-decoration:none"><h1>⚡️&nbsp;<img src="banner.gif" style="display:inline">&nbsp;⚡️</h1></a>
+			<h2>Alpha [experimental] | Avoid sp👀ks</h2>
 		</header>
 		<main class="center-axyz">
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
-				x-flex direction="column">
-				<fieldset>
-					<legend>Queue Inbound Channel</legend>
+			x-flex direction="column">
+			<h3>Queue batches of lightning channels to open in a single transaction</h3>
+			<fieldset>
+					<legend>Lease Inbound Channel</legend>
 					<x-grid columns="2">
 						<label for="inboundCapacity" span="1">Get receiving capacity:</label>
 						<label span="!"><input type="number" id="inboundCapacity" value="1000000" disabled span="1">sats</label><!-- has no name to exclude from request -->
 						<div span="1"></div>
 						<div span="1">
-							<label for="wantsInbound">Get inbound channel quote (~30,000 sats)</label>
+							<label for="wantsInbound">Get inbound channel quote&nbsp;<br>Approx cost: 30,000 sats</label>
 							<input type="hidden" id="hiddenWantsInbound" value="false" name="wants_inbound_quote">
 							<input type="checkbox" id="wantsInbound" name="wants_inbound_quote" value="true" checked>
 						</div>
@@ -53,8 +52,8 @@
 					</x-grid>
 					<p>
 						<x-flex>
-							<button type="button" class="is-circle" onclick="add_channel()">+</button>
-							<button type="button" class="is-circle" onclick="remove_channel()">-</button>
+							<button type="button" class="is-circle colored-button" onclick="add_channel()">+</button>
+							<button type="button" class="is-circle colored-button" onclick="remove_channel()">-</button>
 						</x-flex>
 					</p>
 				</fieldset>
@@ -64,7 +63,7 @@
 				</div>
 				<div id="queue">
 					<x-grid columns=2>
-						<button type="submit" class="float-right" span="2">Generate Funding Request</button>
+						<button type="submit" class="float-right colored-button" span="2">Generate Funding Request</button>
 					</x-grid>
 				</div>
 				<output id="queued" class="invisible">
@@ -81,6 +80,21 @@
 			</form>
 		</main>
 		<script type="text/javascript">
+			function random_style() {
+				// Generate random colors for background, --primary and --secondary
+				// RGB triplet of (32 + $[0, 128]) for some base color, which is then reordered for the secondary color
+				let color_triplet = [32 + Math.floor(Math.random() * 128), 32 + Math.floor(Math.random() * 128), 32 + Math.floor(Math.random() * 128)];
+				let bg_image = `linear-gradient(
+	to bottom right,
+	rgb(${color_triplet.join(", ")}),
+	rgb(7, 10, 19)
+)`;
+				document.body.style.backgroundImage = bg_image;
+				let shifted = [color_triplet[1], color_triplet[2], color_triplet[0]];
+				document.querySelector(':root').style.setProperty('--primary', "rgb(" + shifted + ")");
+				document.querySelector(':root').style.setProperty('--secondary', "rgb(" + color_triplet + ")");
+			}
+
 			function add_channel() {
 				let channels = document.getElementById("channels");
 				let indexToAdd = Math.floor(channels.children.length/2)
@@ -100,6 +114,8 @@
 				channels.removeChild(channels.lastElementChild);
 				channels.removeChild(channels.lastElementChild);
 			}
+
+			random_style()
 
 			document.querySelector("#wantsInbound").addEventListener("input", async (event) => {
 				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
@@ -141,7 +157,7 @@
 						if (r_json.quote) {
 							lspResponse.classList.remove("invisible");
 							let quoteTemplate =`
-<h3>Inbound Channel Quote:</h3>
+<h2>Inbound Channel Quote:</h2>
 <p>
 	This request includes a ${r_json.quote.price} sats transfer to lease ${r_json.quote.size} sats of inbound capacity for ${r_json.quote.duration} ${r_json.quote.duration == 1 ? "month": "months"}.
 	<br>

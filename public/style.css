@@ -1,12 +1,20 @@
 :root {
-    --primary: #d38105;
+    --primary: rgb(53, 171, 187);
+    --secondary: rgb(197, 194, 20);
+    --radius: 20px;
 }
 
 html, body {
-    background-image: url("spookyloin2.png");
+    color: var(--primary);
+    font-family: 'Courier New', Courier, monospace;
+    /* overridden by ~random color within <script> */
+    background-image: linear-gradient(
+        to bottom right,
+        rgb(105, 113, 128),
+        rgb(7, 10, 19)
+    );
     text-align: left;
     width: 100%;
-    color: rgb(179, 28, 28);
 }
 
 
@@ -14,24 +22,15 @@ h1 {
     font-weight: 1000;
     font-size: 3em;
     text-shadow: 10px 10px 15px rgb(0, 0, 0);
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 0, 0),
-        rgb(255, 251, 0)
-    );
-    color: transparent;
+    color: var(--primary);
     background-clip: text;
     -webkit-background-clip: text;
 }
 
 h2 {
     font-weight: 600;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
-    );
-    color: transparent;
+    color: var(--secondary);
+    text-shadow: 5px 3px 5px rgb(0, 0, 0);
     background-clip: text;
     -webkit-background-clip: text;
 }
@@ -39,24 +38,14 @@ h2 {
 
 h3 {
     font-weight: 600;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(255, 174, 0),
-        rgb(0, 255, 242)
-    );
-    color: transparent;
+    color: var(--primary);
     background-clip: text;
     -webkit-background-clip: text;
 }
 
 p {
     font-weight: 400;
-    background-image: conic-gradient(
-        from 0deg at 0% 0%,
-        rgb(175, 26, 26),
-        rgba(208, 255, 0, 0.986)
-    );
-    color: transparent;
+    color: var(--primary);
     background-clip: text;
     -webkit-background-clip: text;
 }
@@ -71,22 +60,33 @@ form > * {
     padding-top: 2rem;
 }
 
-#qrcode {
-    margin: 2rem;
-}
+
 
 input {
     text-align: right;
+}
+
+legend {
+    color: var(--secondary);
+}
+
+#qrcode {
+    margin: 2rem;
 }
 
 .invisible {
     display: none;
 }
 
+.colored-button {
+    color: black;
+    background: var(--secondary);
+}
+
 .warning {
     text-align: center;
     border: 1px solid var(--codeBorderColor,var(--inputBorderColor));
-    color: yellow;
+    color: var(--secondary);
     border-radius: var(--inputRadius);
     font-size: 1.3rem;
     font-family: var(--fontMono);
