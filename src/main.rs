@@ -18,7 +18,8 @@ configure_me::include_config!();
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     env_logger::init_from_env(
-        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"));
+        env_logger::Env::default().filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
+    );
     let (config, args) =
         Config::including_optional_config_files(std::iter::empty::<&str>()).unwrap_or_exit();
 
