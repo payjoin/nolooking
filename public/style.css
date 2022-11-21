@@ -7,6 +7,7 @@
 html, body {
     color: var(--primary);
     font-family: 'Courier New', Courier, monospace;
+    /* overridden by ~random color within <script> */
     background-image: linear-gradient(
         to bottom right,
         rgb(105, 113, 128),
@@ -29,6 +30,7 @@ h1 {
 h2 {
     font-weight: 600;
     color: var(--secondary);
+    text-shadow: 5px 3px 5px rgb(0, 0, 0);
     background-clip: text;
     -webkit-background-clip: text;
 }

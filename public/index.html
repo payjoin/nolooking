@@ -22,12 +22,12 @@
 		<header class="center">
 			<a href="https://nolooking.chaincase.app/" target="_blank" style="text-decoration:none"><h1>⚡️&nbsp;<img src="banner.gif" style="display:inline">&nbsp;⚡️</h1></a>
 			<h2>Alpha [experimental] | Avoid sp👀ks</h2>
-			<h3>Queue batches of lightning channels to open in a single transaction</h3>
 		</header>
 		<main class="center-axyz">
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
-				x-flex direction="column">
-				<fieldset>
+			x-flex direction="column">
+			<h3>Queue batches of lightning channels to open in a single transaction</h3>
+			<fieldset>
 					<legend>Lease Inbound Channel</legend>
 					<x-grid columns="2">
 						<label for="inboundCapacity" span="1">Get receiving capacity:</label>
@@ -80,6 +80,21 @@
 			</form>
 		</main>
 		<script type="text/javascript">
+			function random_style() {
+				// Generate random colors for background, --primary and --secondary
+				// RGB triplet of (32 + $[0, 128]) for some base color, which is then reordered for the secondary color
+				let color_triplet = [32 + Math.floor(Math.random() * 128), 32 + Math.floor(Math.random() * 128), 32 + Math.floor(Math.random() * 128)];
+				let bg_image = `linear-gradient(
+	to bottom right,
+	rgb(${color_triplet.join(", ")}),
+	rgb(7, 10, 19)
+)`;
+				document.body.style.backgroundImage = bg_image;
+				let shifted = [color_triplet[1], color_triplet[2], color_triplet[0]];
+				document.querySelector(':root').style.setProperty('--primary', "rgb(" + shifted + ")");
+				document.querySelector(':root').style.setProperty('--secondary', "rgb(" + color_triplet + ")");
+			}
+
 			function add_channel() {
 				let channels = document.getElementById("channels");
 				let indexToAdd = Math.floor(channels.children.length/2)
@@ -99,6 +114,8 @@
 				channels.removeChild(channels.lastElementChild);
 				channels.removeChild(channels.lastElementChild);
 			}
+
+			random_style()
 
 			document.querySelector("#wantsInbound").addEventListener("input", async (event) => {
 				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
@@ -140,7 +157,7 @@
 						if (r_json.quote) {
 							lspResponse.classList.remove("invisible");
 							let quoteTemplate =`
-<h3>Inbound Channel Quote:</h3>
+<h2>Inbound Channel Quote:</h2>
 <p>
 	This request includes a ${r_json.quote.price} sats transfer to lease ${r_json.quote.size} sats of inbound capacity for ${r_json.quote.duration} ${r_json.quote.duration == 1 ? "month": "months"}.
 	<br>
