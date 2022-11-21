@@ -20,10 +20,7 @@ Any unexpecected node version will likely cause permanent loss of funds.
 
 Requires:
 * Rust version 1.48 or higher to compile
-* LND v14.2 or higher
-
-* **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
-
+* LND v0.15.1 or higher
 
 Install:
 1. Build and install the binary with
@@ -84,9 +81,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 ## Limitations and future plans
 
 * **UNSAFE** -- does not implement required BIP78 checks
-* **Only works with a LND 0.14** - do **not** attempt to bypass the check - guaranteed loss of funds!
-* To work with an *empty* LND wallet you need to use LND 0.14.2
-* Funds in LND or other wallet are not used, so it's not true PayJoin.
+* Funds in LND or other wallet are not used, so it's not true PayJoin *yet*.
 * Invalid request can kill the whole server
 
 ## License
