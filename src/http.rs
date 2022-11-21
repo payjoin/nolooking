@@ -4,6 +4,7 @@ use std::path::Path;
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
 
 use crate::lsp::Quote;
@@ -33,7 +34,7 @@ pub async fn serve(sched: Scheduler, bind_addr: SocketAddr) -> Result<(), hyper:
     });
 
     let server = Server::bind(&bind_addr).serve(new_service);
-    println!("Listening on: http://{}", bind_addr);
+    info!("Listening on: http://{}", bind_addr);
     server.await
 }
 
@@ -81,7 +82,7 @@ async fn serve_public_file(path: &str) -> Result<Response<Body>, HttpError> {
 }
 
 async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<Body>, HttpError> {
-    dbg!(req.uri().query());
+    debug!("{:?}", req.uri().query());
 
     let headers = Headers(req.headers().to_owned());
     let query = {

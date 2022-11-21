@@ -8,6 +8,7 @@ use bitcoin::consensus::Decodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount};
 use ln_types::P2PAddress;
+use log::{info, warn};
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
 use tonic_lnd::lnrpc::{
@@ -46,9 +47,7 @@ impl LndClient {
         if version < (0, 14, 0) {
             return Err(LndError::LNDTooOld(version_str.clone()));
         } else if version < (0, 14, 2) {
-            eprintln!(
-                "WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible."
-            );
+            warn!("WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible.");
         }
 
         Ok(Self(Arc::new(AsyncMutex::new(client))))
@@ -128,7 +127,7 @@ impl LndClient {
                 Update::PsbtFund(ready) => {
                     let psbt = PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt)
                         .map_err(LndError::Decode)?;
-                    eprintln!(
+                    info!(
                         "PSBT received from LND for pending chan id {:?}: {:#?}",
                         pending_chan_id, psbt
                     );

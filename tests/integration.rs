@@ -13,6 +13,7 @@ mod integration {
     use hyper::header::CONTENT_TYPE;
     use hyper::HeaderMap;
     use ln_types::P2PAddress;
+    use log::{debug, error};
     use nolooking::http;
     use nolooking::lnd::LndClient;
     use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
@@ -48,7 +49,7 @@ mod integration {
             ) {
                 match btcrpc.get_best_block_hash() {
                     Ok(_) => break btcrpc,
-                    Err(e) => println!("Attempting to contact btcrpc: {}", e),
+                    Err(e) => error!("Attempting to contact btcrpc: {}", e),
                 }
             }
             timeout -= 1;
@@ -72,7 +73,7 @@ mod integration {
                 .arg(format!("{}/merchant-tls.cert", tmp_path))
                 .output()
                 .expect("failed to copy tls.cert");
-            println!("copied merchant-tls.cert");
+            debug!("copied merchant-tls.cert");
 
             Command::new("docker")
                 .arg("cp")
@@ -80,7 +81,7 @@ mod integration {
                 .arg(format!("{}/merchant-admin.macaroon", &tmp_path))
                 .output()
                 .expect("failed to copy admin.macaroon");
-            println!("copied merchant-admin.macaroon");
+            debug!("copied merchant-admin.macaroon");
 
             // Connecting to LND requires only address, cert file, and macaroon file
             let client = tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await;
@@ -88,7 +89,7 @@ mod integration {
             if let Ok(mut client) = client {
                 match client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await {
                     Ok(_) => break client,
-                    Err(e) => println!("Attempting to connect lnd: {}", e),
+                    Err(e) => error!("Attempting to connect lnd: {}", e),
                 }
             }
             timeout -= 1;
@@ -96,7 +97,7 @@ mod integration {
 
         // conf to merchant
         let endpoint: url::Url = "https://localhost:3010".parse().expect("not a valid Url");
-        println!("{}", &endpoint.clone().to_string());
+        debug!("{}", &endpoint.clone().to_string());
         let conf_string = format!(
             "bind_port=3000\nendpoint=\"{}\"\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
             &endpoint.clone().to_string(), &address_str, &cert_file, &macaroon_file
@@ -110,7 +111,7 @@ mod integration {
             .arg(format!("{}/peer-tls.cert", &tmp_path))
             .output()
             .expect("failed to copy tls.cert");
-        println!("copied peer-tls-cert");
+        debug!("copied peer-tls-cert");
 
         Command::new("docker")
             .arg("cp")
@@ -118,7 +119,7 @@ mod integration {
             .arg(format!("{}/peer-admin.macaroon", &tmp_path))
             .output()
             .expect("failed to copy admin.macaroon");
-        println!("copied peer-admin.macaroon");
+        debug!("copied peer-admin.macaroon");
 
         let address_str = "https://localhost:53283";
         let cert_file = format!("{}/peer-tls.cert", &tmp_path).to_string();
@@ -132,12 +133,12 @@ mod integration {
             peer_client.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await.unwrap();
 
         let peer_id_pubkey = info.into_inner().identity_pubkey;
-        println!("peer_id_pubkey: {:#?}", peer_id_pubkey);
+        debug!("peer_id_pubkey: {:#?}", peer_id_pubkey);
 
         let source_address = bitcoin_rpc.get_new_address(None, None).unwrap();
         bitcoin_rpc.generate_to_address(101, &source_address).unwrap();
         std::thread::sleep(Duration::from_secs(5));
-        println!("SLEPT");
+        debug!("SLEPT");
         // connect one to the next
         let connected = merchant_client
             .lightning()
@@ -151,7 +152,7 @@ mod integration {
             })
             .await
             .expect("failed to connect peers");
-        println!("{:?}", connected);
+        debug!("{:?}", connected);
 
         let peer_address = format!("{}@{}", peer_id_pubkey, "peer_lnd:9735");
         let peer_address = peer_address.parse::<P2PAddress>().expect("invalid ln P2PAddress");
@@ -164,7 +165,7 @@ mod integration {
         let batch = ChannelBatch::new(channels, false, fee_rate);
         let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
         let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
-        println!("{}", &bip21);
+        debug!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
             let channel_update = peer_client
@@ -225,7 +226,7 @@ mod integration {
                 .expect("bitcoind failed to fund psbt")
                 .psbt;
             let psbt = load_psbt_from_base64(psbt.as_bytes()).expect("bad psbt bytes");
-            println!("Original psbt: {:#?}", psbt);
+            debug!("Original psbt: {:#?}", psbt);
             let pj_params = bip78::sender::Configuration::with_fee_contribution(
                 bip78::bitcoin::Amount::from_sat(10000),
                 None,
@@ -245,10 +246,11 @@ mod integration {
                 .send()
                 .await
                 .expect("valid PayJoin server response");
+            debug!("res: {:#?}", res);
             let psbt = ctx
                 .process_response(res.bytes().await.unwrap().to_vec().as_slice())
                 .expect("failed to process response");
-            println!("Proposed psbt: {:#?}", psbt);
+            debug!("Proposed psbt: {:#?}", psbt);
             let psbt = bitcoin_rpc
                 .wallet_process_psbt(&serialize_psbt(&psbt), None, None, None)
                 .unwrap()
@@ -262,17 +264,17 @@ mod integration {
         });
 
         tokio::select! {
-            _ = payjoin_channel_open => println!("payjoin-client completed first"),
-            _ = nolooking_server => println!("nolooking server stopped first. This shouldn't happen"),
-            _ = tokio::time::sleep(Duration::from_secs(20)) => println!("payjoin timed out after 20 seconds"),
+            _ = payjoin_channel_open => debug!("payjoin-client completed first"),
+            _ = nolooking_server => debug!("nolooking server stopped first. This shouldn't happen"),
+            _ = tokio::time::sleep(Duration::from_secs(20)) => debug!("payjoin timed out after 20 seconds"),
         };
 
         tokio::select! {
             _ = loop_til_open_channel => {
                     fixture.test_succeeded = true;
-                    println!("Channel opened!");
+                    debug!("Channel opened!");
                 },
-            _ = tokio::time::sleep(Duration::from_secs(6)) => println!("Channel open upate listener timed out"),
+            _ = tokio::time::sleep(Duration::from_secs(6)) => debug!("Channel open upate listener timed out"),
         };
 
         Ok(())
@@ -285,7 +287,7 @@ mod integration {
 
     impl Fixture {
         fn new(compose_dir: String) -> Self {
-            println!("Running docker-compose from {}", compose_dir);
+            debug!("Running docker-compose from {}", compose_dir);
             Command::new("docker-compose")
                 .arg("--project-directory")
                 .arg(&compose_dir)
@@ -305,7 +307,7 @@ mod integration {
     impl Drop for Fixture {
         /// This runs on panic to clean up the test
         fn drop(&mut self) {
-            println!("\nRunning `docker-compose down -v` to clean up");
+            debug!("\nRunning `docker-compose down -v` to clean up");
             Command::new("docker-compose")
                 .arg("--project-directory")
                 .arg(self.compose_dir.as_str())

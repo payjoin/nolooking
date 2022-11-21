@@ -8,6 +8,7 @@ use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut};
 use ln_types::P2PAddress;
+use log::{error, info};
 use tonic_lnd::lnrpc::OpenChannelRequest;
 use url::Url;
 
@@ -163,7 +164,7 @@ impl ScheduledPayJoin {
         for (chan_id, handle) in handles {
             match handle.await.unwrap()? {
                     Some(vout) => funding_txos.push((chan_id, vout)),
-                    None => eprintln!("failed to receive funding psbt after channel open request. !this case is not handled!"),
+                    None => error!("failed to receive funding psbt after channel open request. !this case is not handled!"),
                 };
         }
 
@@ -247,7 +248,7 @@ impl ScheduledPayJoin {
         // psbt should have outputs same length as contained unsigned tx
         proposal_psbt.outputs.resize_with(proposal_psbt.unsigned_tx.output.len(), Default::default);
 
-        eprintln!("channel funding Proposal PSBT created: {:#?}", proposal_psbt);
+        info!("channel funding Proposal PSBT created: {:#?}", proposal_psbt);
 
         proposal_psbt
     }
@@ -341,7 +342,7 @@ impl Scheduler {
             .assume_no_inputs_seen_before(); // TODO
 
         let mut original_psbt = request.psbt().clone();
-        eprintln!("Received psbt: {:#?}", original_psbt);
+        info!("Received psbt: {:#?}", original_psbt);
 
         // prepare proposal psbt (psbt, owned_vout, ScheduledPayJoin)
         let (owned_vout, pj) =
@@ -392,7 +393,7 @@ impl Scheduler {
         let proposal_psbt =
             PartiallySignedTransaction::from_unsigned_tx(proposal_psbt.unsigned_tx.clone())
                 .expect("resetting tx failed");
-        eprintln!("Proposal PSBT that will be returned: {:#?}", proposal_psbt);
+        info!("Proposal PSBT that will be returned: {:#?}", proposal_psbt);
 
         let mut psbt_bytes = Vec::new();
         proposal_psbt.consensus_encode(&mut psbt_bytes)?;
