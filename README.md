@@ -43,10 +43,10 @@ lnd_macaroon_path="/home/dan/.lnd/data/chain/bitcoin/mainnet/admin.macaroon"
    - Lines starting with `lnd_` specify your connection to your bitcoin node.
 
    - You will be able to view the nolooking site on `bind_port` and the payjoin endpoint will be `endpoint` (e.g. can be a domain).
-4. (Optional) nolooking uses [env_logger](https://docs.rs/env_logger/latest/env_logger/) to log messages varying priority. Use `RUST_LOG` env var to set your log priority. Valid options are error, warn, info, debug, trace
-5. Run with `RUST_LOG=debug nolooking --conf nolooking.conf`.
-6. Visit Nolooking on [127.0.0.1](http://127.0.0.1:3000) and queue some bitcoin channels.
-7. Generate the QR code, pay it or share it! Once a payjoin transaction has enough confirmations, your new lightning channels will be established and you can move your sats over the lightning nework!
+
+4. Run with `nolooking --conf nolooking.conf`
+5. Visit Nolooking on [127.0.0.1](http://127.0.0.1:3000) and queue some bitcoin channels.
+6. Generate the QR code, pay it or share it! Once a payjoin transaction has enough confirmations, your new lightning channels will be established and you can move your sats over the lightning nework!
 
 
 ## Expected fee savings
