@@ -44,10 +44,8 @@ impl LndClient {
         let version_str = &response.get_ref().version;
         let version = Self::parse_lnd_version(version_str)?;
 
-        if version < (0, 14, 0) {
+        if version < (0, 15, 1) {
             return Err(LndError::LNDTooOld(version_str.clone()));
-        } else if version < (0, 14, 2) {
-            warn!("WARNING: LND older than 0.14.2. Using with an empty LND wallet is impossible.");
         }
 
         Ok(Self(Arc::new(AsyncMutex::new(client))))
