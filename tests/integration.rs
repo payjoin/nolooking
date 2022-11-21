@@ -10,14 +10,13 @@ mod integration {
     use bip78::bitcoin::util::psbt::PartiallySignedTransaction as Psbt;
     use bip78::{PjUriExt, UriExt};
     use bitcoincore_rpc::{Auth, Client, RpcApi};
-    use hyper::client::HttpConnector;
-    use hyper_tls::HttpsConnector;
+    use hyper::header::CONTENT_TYPE;
+    use hyper::HeaderMap;
     use ln_types::P2PAddress;
     use nolooking::http;
     use nolooking::lnd::LndClient;
     use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
-    use tokio_native_tls::native_tls;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
     #[tokio::test]
@@ -233,34 +232,21 @@ mod integration {
             );
             let (req, ctx) =
                 link.create_pj_request(psbt, pj_params).expect("failed to make http pj request");
-            let url = req.url.to_string().parse::<hyper::Uri>().unwrap();
-            let request = hyper::Request::builder()
-                .method(hyper::Method::POST)
-                .uri(url)
-                .header("Content-Type", "text/plain")
-                .body(hyper::Body::from(req.body))
-                .expect("request builder");
-            println!("request: {:?}", request);
-            let mut http = HttpConnector::new();
-            http.enforce_http(false);
-            let mut tls = native_tls::TlsConnector::builder();
-            let tls_cert =
-                native_tls::Certificate::from_der(&cert.serialize_der().unwrap()).unwrap();
-            tls.add_root_certificate(tls_cert);
-            tls.danger_accept_invalid_certs(true);
-            let tls = tls.build().unwrap();
-            let tls: tokio_native_tls::TlsConnector = tokio_native_tls::TlsConnector::from(tls);
-            let ct = HttpsConnector::from((http, tls));
-            let client = hyper::Client::builder().build(ct);
-            let response = client.request(request).await.expect("failed to get http pj response");
-            println!("res: {:#?}", response);
-            let response = hyper::body::to_bytes(response.into_body())
+            let https = reqwest::ClientBuilder::new()
+                .danger_accept_invalid_certs(true) // this is only a test
+                .build()
+                .expect("https client");
+            let mut headers = HeaderMap::new();
+            headers.insert(CONTENT_TYPE, "text/plain".parse().unwrap());
+            let res = https
+                .post(req.url)
+                .headers(headers)
+                .body(req.body)
+                .send()
                 .await
-                .expect("failed to deserialize response");
-            println!("res: {:#?}", response);
-
+                .expect("valid PayJoin server response");
             let psbt = ctx
-                .process_response(response.to_vec().as_slice())
+                .process_response(res.bytes().await.unwrap().to_vec().as_slice())
                 .expect("failed to process response");
             println!("Proposed psbt: {:#?}", psbt);
             let psbt = bitcoin_rpc
