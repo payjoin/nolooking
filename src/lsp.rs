@@ -20,7 +20,11 @@ pub async fn request_quote(
     p2p_address: &P2PAddress,
     refund_address: &Address,
 ) -> Result<Quote, LspError> {
-    let https = hyper_tls::HttpsConnector::new();
+    let https = hyper_rustls::HttpsConnectorBuilder::new()
+        .with_native_roots()
+        .https_only()
+        .enable_http1()
+        .build();
     let client = Client::builder().build::<_, hyper::Body>(https);
     // get address
     // suggest capacity
