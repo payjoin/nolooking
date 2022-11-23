@@ -19,7 +19,7 @@ Any unexpecected node version will likely cause permanent loss of funds.
 ## Usage
 
 Requires:
-* Rust version 1.48 or higher to compile
+* Rust version 1.56 or higher to compile
 * LND v0.15.1 or higher
 
 Install:
