@@ -8,7 +8,7 @@ use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
 
 use crate::lsp::Quote;
-use crate::recommend::get_recommended_channels;
+use crate::recommend::{get_recommended_channels, RecommendedError};
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(not(feature = "test_paths"))]
@@ -47,7 +47,7 @@ async fn handle_web_req(
         (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
-        (&Method::GET, "/recommended") => handle_get_recommendations().await,
+        (&Method::GET, "/recommend") => handle_get_recommendations().await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
     };
@@ -153,6 +153,7 @@ pub enum HttpError {
     Scheduler(SchedulerError),
     SerdeQs(serde_qs::Error),
     SerdeJson(serde_json::Error),
+    Recommended(RecommendedError),
 }
 
 impl HttpError {
@@ -175,6 +176,7 @@ impl HttpError {
             | Self::Scheduler(_)
             | Self::SerdeQs(_)
             | Self::SerdeJson(_) => StatusCode::BAD_REQUEST,
+            Self::Recommended(_) => StatusCode::BAD_REQUEST,
         };
 
         // TODO: Avoid writing error directly to HTTP response (bad security if public facing)
@@ -210,4 +212,8 @@ impl From<SchedulerError> for HttpError {
 
 impl From<serde_qs::Error> for HttpError {
     fn from(e: serde_qs::Error) -> Self { Self::SerdeQs(e) }
+}
+
+impl From<RecommendedError> for HttpError {
+    fn from(e: RecommendedError) -> Self { Self::Recommended(e) }
 }

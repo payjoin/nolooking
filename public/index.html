@@ -67,6 +67,10 @@
 					</div>
 				</div>
 				<br>
+				<div>
+					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
+					<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
+				</div>
 				<div id="queue">
 					<x-grid columns=2>
 						<button type="submit" class="float-right colored-button" span="2">Generate Funding Request</button>
@@ -104,8 +108,8 @@
 			}
 			
 			function add_channel(address=""){
-				let indexToAdd = Math.floor(channels.children.length/2)
 				const channels = document.getElementById("channels");
+				let indexToAdd = Math.floor(channels.children.length/2)
 				let div = document.createElement('div');
 				if (address == "") {
 					div.innerHTML = `<input type="text" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
@@ -125,6 +129,50 @@
 				}
 				channels.removeChild(channels.lastElementChild);
 				channels.removeChild(channels.lastElementChild);
+			}
+
+			async function get_recommended_channels(){
+				document.getElementsByClassName('recommendation-button-wrapper')[0].classList.add('invisible')
+				try {
+					recommendations = await (await fetch('/recommend', {
+						method: 'GET',
+					})).json()
+
+					for (var node_type in recommendations) {
+						let text = `
+						<div>
+							<h3>${node_type}</h3>
+							<small>a well connected node that is reliable for payments</small>
+							<br>
+							<br>
+							<ul>
+								<li>${recommendations[node_type].alias}</li>
+								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity / SATS_PER_BTC} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
+							</ul>
+							<div>
+								<button type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
+							</div>
+						</div>
+						<br>
+						`;
+						document.getElementById("recommendations").insertAdjacentHTML("beforeend", text);
+					}
+				} catch (error) {
+					console.error(error)
+					alert("Sorry, can't connect to node sources right now.")
+				}
+			}
+
+			function add_recommended_node(type = 'routing_node') {
+				const node = recommendations[type];
+				if (!node) {
+					alert("Something went wrong. Please try again.");
+					return;
+				}
+				const pubkey = node.public_key;
+				const socket = node.sockets.includes(',') ? node.sockets.split(',')[0] : node.sockets;
+				add_channel(`${pubkey}@${socket}`);
+
 			}
 
 			random_style()
