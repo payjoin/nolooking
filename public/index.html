@@ -58,15 +58,16 @@
 					</p>
 					<div>
 				</fieldset>
-				<div class="recommendation-wrapper">
-					<legend>Get Recommended Outbound Channels</legend>
-					<div class="recommendation-button-wrapper">
-						<button type="button" onclick="get_recommended_channels()">Get Recommended Channels</button>
+				<fieldset>
+					<legend>Recommended Outbound Channels</legend>
+					<div class="recommendation-wrapper">
+						<div class="recommendation-button-wrapper">
+							<button type="button" class="colored-button" onclick="get_recommended_channels()">Get Recommended Channels</button>
+						</div>
+						<div id="recommendations"></div>
 					</div>
-					<div id="recommendations">
-					</div>
-				</div>
-				<br>
+				</fieldset>
+				<br />
 				<div>
 					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
 					<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
@@ -150,7 +151,7 @@
 								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity / SATS_PER_BTC} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
 							</ul>
 							<div>
-								<button type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
+								<button class="colored-button" type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
 							</div>
 						</div>
 						<br>
@@ -166,7 +167,7 @@
 			function add_recommended_node(type = 'routing_node') {
 				const node = recommendations[type];
 				if (!node) {
-					alert("Something went wrong. Please try again.");
+					alert("Something went wrong trying to add node to channel list. Please try again or refresh.");
 					return;
 				}
 				const pubkey = node.public_key;

@@ -95,9 +95,7 @@ legend {
 }
 
 .recommendation-wrapper {
-    padding: 20px;
-    background-color: black;
-    border-radius: 25px;
+    padding-left: 20px;
 }
 
 ul {
@@ -106,5 +104,5 @@ ul {
 
 small {
     font-family: 'Courier New', Courier, monospace;
-    color: orange;
+    color: var(--secondary);
 }
