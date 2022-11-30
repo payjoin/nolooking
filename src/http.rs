@@ -44,7 +44,7 @@ async fn handle_web_req(
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => handle_index().await,
-        (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
+        (&Method::POST, "/pj") => handle_pj(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
@@ -52,7 +52,15 @@ async fn handle_web_req(
 
     match result {
         Ok(resp) => Ok(resp),
-        Err(err) => err.into_response(),
+        Err(err) => {
+            match &err {
+                HttpError::PayJoin(err) => {
+                    log::debug!("PayJoin error: {:?}", &err);
+                }
+                _ => (),
+            }
+            err.into_response()
+        }
     }
 }
 
@@ -81,7 +89,10 @@ async fn serve_public_file(path: &str) -> Result<Response<Body>, HttpError> {
     }
 }
 
-async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<Body>, HttpError> {
+async fn handle_pj(
+    scheduler: Scheduler,
+    req: Request<Body>,
+) -> Result<Response<Body>, PayJoinError> {
     debug!("{:?}", req.uri().query());
 
     let headers = Headers(req.headers().to_owned());
@@ -97,8 +108,8 @@ async fn handle_pj(scheduler: Scheduler, req: Request<Body>) -> Result<Response<
     let reader = &*bytes;
     let original_request = UncheckedProposal::from_request(reader, query, headers)?;
 
-    let proposal_psbt = scheduler.propose_payjoin(original_request).await?;
-
+    let proposal_psbt =
+        scheduler.propose_payjoin(original_request).await.map_err(PayJoinError::Scheduler)?;
     Ok(Response::new(Body::from(proposal_psbt)))
 }
 
@@ -113,7 +124,7 @@ async fn handle_schedule(
     scheduler: Scheduler,
     req: Request<Body>,
 ) -> Result<Response<Body>, HttpError> {
-    let bytes = hyper::body::to_bytes(req.into_body()).await?;
+    let bytes = hyper::body::to_bytes(req.into_body()).await.map_err(HttpError::Hyper)?;
     // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
     let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
     let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
@@ -136,8 +147,23 @@ impl bip78::receiver::Headers for Headers {
 }
 
 #[derive(Debug)]
-pub enum HttpError {
+pub enum PayJoinError {
+    Scheduler(SchedulerError),
+    BadRequest(hyper::Error),
     Bip78Request(bip78::receiver::RequestError),
+}
+
+impl From<bip78::receiver::RequestError> for PayJoinError {
+    fn from(e: bip78::receiver::RequestError) -> Self { Self::Bip78Request(e) }
+}
+
+impl From<hyper::Error> for PayJoinError {
+    fn from(e: hyper::Error) -> Self { Self::BadRequest(e) }
+}
+
+#[derive(Debug)]
+pub enum HttpError {
+    PayJoin(PayJoinError),
     Hyper(hyper::Error),
     Http(hyper::http::Error),
     InvalidHeaderValue(hyper::header::InvalidHeaderValue),
@@ -159,7 +185,7 @@ impl HttpError {
         // TODO respond with well known errors as defined in BIP-0078
         // https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki#receivers-well-known-errors
         parts.status = match self {
-            Self::Bip78Request(_)
+            Self::PayJoin(_)
             | Self::Hyper(_)
             | Self::Http(_)
             | Self::InvalidHeaderValue(_)
@@ -183,12 +209,8 @@ impl std::fmt::Display for HttpError {
 
 impl std::error::Error for HttpError {}
 
-impl From<bip78::receiver::RequestError> for HttpError {
-    fn from(e: bip78::receiver::RequestError) -> Self { Self::Bip78Request(e) }
-}
-
-impl From<hyper::Error> for HttpError {
-    fn from(e: hyper::Error) -> Self { Self::Hyper(e) }
+impl From<PayJoinError> for HttpError {
+    fn from(e: PayJoinError) -> Self { Self::PayJoin(e) }
 }
 
 impl From<hyper::header::InvalidHeaderValue> for HttpError {
