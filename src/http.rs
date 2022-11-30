@@ -3,7 +3,7 @@ use std::path::Path;
 
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
-use hyper::{Body, Method, Request, Response, Server, StatusCode};
+use hyper::{Body, Method, Request, Response, StatusCode};
 use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
 
@@ -16,26 +16,38 @@ const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
 #[cfg(feature = "test_paths")]
 const PUBLIC_DIR: &str = "public";
 
+// The HTTP Server to schedule and exectue PayJoin batches of channels
+pub struct Server {
+    scheduler: Scheduler,
+    bind_addr: SocketAddr,
+}
+
+impl Server {
+    pub fn new(scheduler: Scheduler, bind_addr: SocketAddr) -> Self {
+        Self { scheduler, bind_addr }
+    }
+
+    /// Serve requests to Schedule and execute PayJoins with given options.
+    pub async fn serve(&self) -> Result<(), hyper::Error> {
+        let new_service = make_service_fn(move |_| {
+            let sched = self.scheduler.clone();
+            async move {
+                let handler = move |req| handle_web_req(sched.clone(), req);
+                Ok::<_, hyper::Error>(service_fn(handler))
+            }
+        });
+
+        let server = hyper::Server::bind(&self.bind_addr).serve(new_service);
+        info!("Listening on: http://{}", self.bind_addr);
+        server.await
+    }
+}
+
 /// Create QR code and save to `PUBLIC_DIR/qr_codes/<name>.png`
 fn create_qr_code(qr_string: &str, name: &str) {
     let filename = format!("{}/qr_codes/{}.png", PUBLIC_DIR, name);
     qrcode_generator::to_png_to_file(qr_string, QrCodeEcc::Low, 512, filename.clone())
         .expect(&format!("Saved QR code: {}", filename));
-}
-
-/// Serve requests to Schedule and execute PayJoins with given options.
-pub async fn serve(sched: Scheduler, bind_addr: SocketAddr) -> Result<(), hyper::Error> {
-    let new_service = make_service_fn(move |_| {
-        let sched = sched.clone();
-        async move {
-            let handler = move |req| handle_web_req(sched.clone(), req);
-            Ok::<_, hyper::Error>(service_fn(handler))
-        }
-    });
-
-    let server = Server::bind(&bind_addr).serve(new_service);
-    info!("Listening on: http://{}", bind_addr);
-    server.await
 }
 
 async fn handle_web_req(
