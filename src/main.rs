@@ -33,7 +33,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let bind_addr = (config.bind_ip, config.bind_port).into();
-    http::serve(scheduler, bind_addr).await?;
+    http::Server::new(scheduler, bind_addr).serve().await?;
 
     Ok(())
 }

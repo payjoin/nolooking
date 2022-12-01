@@ -1,11 +1,14 @@
+use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::path::Path;
+use std::sync::Arc;
 
 use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
+use tokio::sync::Mutex;
 
 use crate::lsp::Quote;
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
@@ -16,23 +19,27 @@ const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
 #[cfg(feature = "test_paths")]
 const PUBLIC_DIR: &str = "public";
 
+type AsyncQueue<T> = Arc<Mutex<VecDeque<T>>>;
+
 // The HTTP Server to schedule and exectue PayJoin batches of channels
 pub struct Server {
     scheduler: Scheduler,
     bind_addr: SocketAddr,
+    notifications: AsyncQueue<String>,
 }
 
 impl Server {
     pub fn new(scheduler: Scheduler, bind_addr: SocketAddr) -> Self {
-        Self { scheduler, bind_addr }
+        Self { scheduler, bind_addr, notifications: Arc::new(Mutex::new(VecDeque::new())) }
     }
 
     /// Serve requests to Schedule and execute PayJoins with given options.
     pub async fn serve(&self) -> Result<(), hyper::Error> {
         let new_service = make_service_fn(move |_| {
             let sched = self.scheduler.clone();
+            let notifs = self.notifications.clone();
             async move {
-                let handler = move |req| handle_web_req(sched.clone(), req);
+                let handler = move |req| handle_web_req(sched.clone(), notifs.clone(), req);
                 Ok::<_, hyper::Error>(service_fn(handler))
             }
         });
@@ -52,11 +59,13 @@ fn create_qr_code(qr_string: &str, name: &str) {
 
 async fn handle_web_req(
     scheduler: Scheduler,
+    notifications: AsyncQueue<String>,
     req: Request<Body>,
 ) -> Result<Response<Body>, hyper::Error> {
     let result = match (req.method(), req.uri().path()) {
         (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await.map_err(HttpError::PayJoin),
+        (&Method::GET, "/notification") => handle_notification(notifications.clone()).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
@@ -67,7 +76,9 @@ async fn handle_web_req(
         Err(err) => {
             match &err {
                 HttpError::PayJoin(err) => {
-                    log::debug!("PayJoin error: {:?}", &err);
+                    let mut notifications = notifications.lock().await;
+                    notifications.push_back(err.to_string());
+                    log::error!("PayJoin error: {:?}", &err);
                 }
                 _ => (),
             }
@@ -125,6 +136,24 @@ async fn handle_pj(
     Ok(Response::new(Body::from(proposal_psbt)))
 }
 
+async fn handle_notification(
+    notifications: AsyncQueue<String>,
+) -> Result<Response<Body>, HttpError> {
+    let sleep_for = std::time::Duration::from_secs(1);
+
+    // long polling: 10 secs
+    for _ in 0..10u64 {
+        let mut notifications = notifications.lock().await;
+        if !notifications.is_empty() {
+            if let Some(notification) = notifications.pop_front() {
+                return Ok(Response::new(Body::from(notification)));
+            }
+        }
+        tokio::time::sleep(sleep_for).await;
+    }
+    Ok(Response::new(Body::from("")))
+}
+
 #[derive(Clone, Deserialize, Serialize, Debug)]
 pub struct ScheduleResponse {
     bip21: String,
@@ -163,6 +192,16 @@ pub enum PayJoinError {
     Scheduler(SchedulerError),
     BadRequest(hyper::Error),
     Bip78Request(bip78::receiver::RequestError),
+}
+
+impl std::fmt::Display for PayJoinError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Scheduler(err) => write!(f, "Scheduler error: {}", err),
+            Self::Bip78Request(err) => write!(f, "Bip78 request error: {:?}", err), // TODO impl Display for RequestError @bip78
+            Self::BadRequest(_) => write!(f, "Bad request"),
+        }
+    }
 }
 
 impl From<bip78::receiver::RequestError> for PayJoinError {
