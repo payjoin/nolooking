@@ -4,12 +4,11 @@ use std::num::TryFromIntError;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use bitcoin::consensus::{Decodable, Encodable};
+use bitcoin::consensus::Decodable;
 use bitcoin::psbt::serialize::Serialize;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Transaction};
 use ln_types::P2PAddress;
-use log::{info, warn};
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
 use tonic_lnd::lnrpc::{
@@ -126,9 +125,10 @@ impl LndClient {
                 Update::PsbtFund(ready) => {
                     let psbt = PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt)
                         .map_err(LndError::Decode)?;
-                    info!(
+                    log::info!(
                         "PSBT received from LND for pending chan id {:?}: {:#?}",
-                        pending_chan_id, psbt
+                        pending_chan_id,
+                        psbt
                     );
                     assert_eq!(psbt.unsigned_tx.output.len(), 1);
 
