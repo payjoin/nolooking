@@ -58,15 +58,16 @@
 					</p>
 					<div>
 				</fieldset>
-				<fieldset>
-					<legend>Recommended Outbound Channels</legend>
+				<section>
+					<legend>Connect to a suggestion</legend>
 					<div class="recommendation-wrapper">
+						<div id="recommendations-loading-text" class="invisible">Loading...</div>
 						<div class="recommendation-button-wrapper">
 							<button type="button" class="colored-button" onclick="get_recommended_channels()">Get Recommended Channels</button>
 						</div>
 						<div id="recommendations"></div>
 					</div>
-				</fieldset>
+				</section>
 				<br />
 				<div>
 					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
@@ -112,13 +113,10 @@
 				const channels = document.getElementById("channels");
 				let indexToAdd = Math.floor(channels.children.length/2)
 				let div = document.createElement('div');
-				if (address == "") {
-					div.innerHTML = `<input type="text" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
-				} else {
-					div.innerHTML = `<input type="text" value="${address}" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
-				}
+				div.innerHTML = `<input type="text" value="${address}" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
 				channels.appendChild(div.firstChild);
 				channels.appendChild(div.lastChild);
+				div.lastChild.focus();
 			}
 
 			function remove_channel() {
@@ -134,6 +132,7 @@
 
 			async function get_recommended_channels(){
 				document.getElementsByClassName('recommendation-button-wrapper')[0].classList.add('invisible')
+				document.getElementById("recommendations-loading-text").classList.remove('invisible')
 				try {
 					recommendations = await (await fetch('/recommend', {
 						method: 'GET',
@@ -160,7 +159,9 @@
 					}
 				} catch (error) {
 					console.error(error)
-					alert("Sorry, can't connect to node sources right now.")
+					alert("Can't get suggestions. The recommendations server can't be reached. Try again later.")
+				} finally {
+					document.getElementById("recommendations-loading-text").classList.add('invisible')
 				}
 			}
 
