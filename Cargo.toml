@@ -9,7 +9,7 @@ edition = "2018"
 spec = "config_spec.toml"
 
 [features]
-test_paths = []
+prod_public_path = []
 
 [dependencies]
 bitcoin = { version = "0.28.1", features = ["use-serde"] }
