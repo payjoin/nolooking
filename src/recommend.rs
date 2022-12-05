@@ -1,29 +1,35 @@
 use core::convert::TryFrom;
 use std::convert::TryInto;
+use std::num::ParseIntError;
 use std::ops::Index;
+use std::str::FromStr;
 
+use bitcoin::util::amount::ParseAmountError;
 use bitcoin::Amount;
 use ln_types::P2PAddress;
 use reqwest::Url;
 
 type ConnectivityResponse = Vec<Nodes>;
 #[derive(Clone, serde_derive::Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 struct Nodes {
-    pub public_key: P2PAddress,
+    // TODO use ln:types::NodePubkey
+    pub public_key: String,
     #[serde(with = "bitcoin::util::amount::serde::as_sat")]
     pub capacity: Amount,
 }
 
 #[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Node {
     // TODO use ln_types pubkey
+    #[serde(rename = "public_key")]
     pub public_key: String,
     pub alias: String,
-    #[serde(rename(serialize = "sockets", deserialize = "socket"))]
     pub sockets: String,
+    #[serde(rename = "active_channel_count")]
     pub active_channel_count: i64,
-    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
-    pub capacity: Amount,
+    pub capacity: String,
 }
 
 #[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
@@ -39,17 +45,18 @@ pub struct NodeDTO {
 impl TryFrom<Node> for NodeDTO {
     type Error = RecommendedError;
     fn try_from(value: Node) -> Result<Self, RecommendedError> {
-        // Sockets are comma delim'd. First option is ip, second is Tor hidden service
-        // We always serve an ip P2P address to the user
+        // Sockets are comma delim'd. First option Tor hidden service, second is an ip
         let sockets: Vec<&str> = value.sockets.split(",").collect();
-        let p2p_address = P2PAddress::try_from(format!("{}@{}", sockets[0], value.public_key))
+        let p2p_address = P2PAddress::try_from(format!("{}@{}", value.public_key, sockets[0]))
             .map_err(|_e| InternalRecommendedError::Parse("Could not parse P2PAddress"))
             .map_err(RecommendedError)?;
+        let cap = u64::from_str(&value.capacity)?;
+
         Ok(Self {
             p2p_address,
             alias: value.alias,
             active_channel_count: value.active_channel_count,
-            capacity: value.capacity,
+            capacity: Amount::from_sat(cap),
         })
     }
 }
@@ -75,17 +82,12 @@ pub async fn get_recommended_channels() -> Result<Recommendations, RecommendedEr
     Ok(Recommendations { routing_node: high_capacity_node, edge_node: high_channel_node })
 }
 
-async fn get_node(pubkey: &P2PAddress) -> Result<NodeDTO, RecommendedError> {
+async fn get_node(pubkey: &str) -> Result<NodeDTO, RecommendedError> {
     let base_url = format!("https://mempool.space/api/v1/lightning/nodes/{}", pubkey);
     let url = Url::parse(&base_url).map_err(InternalRecommendedError::Url)?;
 
     let res = reqwest::Client::new().get(url).send().await?;
-    let mut node: Node = res.json::<Node>().await?;
-
-    // Sockets are comma delim'd. First option is ip, second is Tor hidden service
-    // We always serve an ip P2P address to the user
-    let sockets: Vec<&str> = node.sockets.split(",").collect();
-    node.sockets = sockets[0].to_string();
+    let node: Node = res.json::<Node>().await?;
     let node_dto: NodeDTO = node.try_into()?;
     Ok(node_dto)
 }
@@ -98,6 +100,8 @@ pub(crate) enum InternalRecommendedError {
     Url(url::ParseError),
     Http(reqwest::Error),
     Parse(&'static str),
+    ParseAmountError(ParseAmountError),
+    ParseIntError(ParseIntError),
 }
 
 impl From<InternalRecommendedError> for RecommendedError {
@@ -107,5 +111,17 @@ impl From<InternalRecommendedError> for RecommendedError {
 impl From<reqwest::Error> for RecommendedError {
     fn from(value: reqwest::Error) -> Self {
         RecommendedError(InternalRecommendedError::Http(value))
+    }
+}
+
+impl From<ParseAmountError> for RecommendedError {
+    fn from(value: ParseAmountError) -> Self {
+        RecommendedError(InternalRecommendedError::ParseAmountError(value))
+    }
+}
+
+impl From<ParseIntError> for RecommendedError {
+    fn from(value: ParseIntError) -> Self {
+        RecommendedError(InternalRecommendedError::ParseIntError(value))
     }
 }

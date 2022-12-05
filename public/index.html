@@ -160,6 +160,8 @@
 				} catch (error) {
 					console.error(error)
 					alert("Can't get suggestions. The recommendations server can't be reached. Try again later.")
+					document.getElementsByClassName('recommendation-button-wrapper')[0].classList.remove('invisible')
+
 				} finally {
 					document.getElementById("recommendations-loading-text").classList.add('invisible')
 				}
@@ -171,9 +173,7 @@
 					alert("Something went wrong trying to add node to channel list. Please try again or refresh.");
 					return;
 				}
-				const pubkey = node.public_key;
-				const socket = node.socket;
-				add_channel(`${pubkey}@${socket}`);
+				add_channel(`${node.p2p_address}`);
 
 			}
 
