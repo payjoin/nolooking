@@ -37,6 +37,7 @@ h2 {
 
 
 h3 {
+    font-size: 1.25em;
     font-weight: 600;
     color: var(--primary);
     background-clip: text;
@@ -91,4 +92,17 @@ legend {
     font-size: 1.3rem;
     font-family: var(--fontMono);
     white-space: nowrap;
+}
+
+.recommendation-wrapper {
+    padding-left: 20px;
+}
+
+ul {
+    list-style-type: none;
+}
+
+small {
+    font-family: 'Courier New', Courier, monospace;
+    color: var(--secondary);
 }
