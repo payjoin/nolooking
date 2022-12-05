@@ -10,10 +10,10 @@ use qrcode_generator::QrCodeEcc;
 use crate::lsp::Quote;
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
-#[cfg(not(feature = "test_paths"))]
+#[cfg(feature = "prod_public_path")]
 const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
 
-#[cfg(feature = "test_paths")]
+#[cfg(not(feature = "prod_public_path"))]
 const PUBLIC_DIR: &str = "public";
 
 /// Create QR code and save to `PUBLIC_DIR/qr_codes/<name>.png`
