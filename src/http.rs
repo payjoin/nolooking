@@ -47,7 +47,7 @@ async fn handle_web_req(
         (&Method::GET, "/") => handle_index().await,
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
-        (&Method::GET, "/recommend") => handle_get_recommendations().await,
+        (&Method::GET, "/recommend") => handle_recommendations().await,
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
     };
@@ -132,7 +132,7 @@ async fn handle_schedule(
     Ok(response)
 }
 
-async fn handle_get_recommendations() -> Result<Response<Body>, HttpError> {
+async fn handle_recommendations() -> Result<Response<Body>, HttpError> {
     let nodes = get_recommended_channels().await.unwrap();
     let mut response = Response::new(Body::from(serde_json::to_string(&nodes).unwrap()));
     response.headers_mut().insert(hyper::header::CONTENT_TYPE, "application/json".parse().unwrap());

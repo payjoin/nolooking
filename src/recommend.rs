@@ -1,34 +1,63 @@
+use core::convert::TryFrom;
+use std::convert::TryInto;
 use std::ops::Index;
 
+use bitcoin::Amount;
+use ln_types::P2PAddress;
 use reqwest::Url;
-use serde_derive::{Deserialize, Serialize};
 
 type ConnectivityResponse = Vec<Nodes>;
-
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Clone, serde_derive::Deserialize, Debug)]
 struct Nodes {
-    pub public_key: String,
-    pub channels: i64,
-    pub capacity: i64,
+    pub public_key: P2PAddress,
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
+    pub capacity: Amount,
 }
 
-#[derive(Default, Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
 pub struct Node {
-    #[serde(rename = "public_key")]
+    // TODO use ln_types pubkey
     pub public_key: String,
     pub alias: String,
+    #[serde(rename(serialize = "sockets", deserialize = "socket"))]
     pub sockets: String,
-    #[serde(rename = "active_channel_count")]
     pub active_channel_count: i64,
-    pub capacity: String,
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
+    pub capacity: Amount,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Debug, Clone, serde_derive::Serialize, serde_derive::Deserialize)]
+pub struct NodeDTO {
+    pub p2p_address: P2PAddress,
+    pub alias: String,
+    #[serde(rename = "active_channel_count")]
+    pub active_channel_count: i64,
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
+    pub capacity: Amount,
+}
+
+impl TryFrom<Node> for NodeDTO {
+    type Error = RecommendedError;
+    fn try_from(value: Node) -> Result<Self, RecommendedError> {
+        // Sockets are comma delim'd. First option is ip, second is Tor hidden service
+        // We always serve an ip P2P address to the user
+        let sockets: Vec<&str> = value.sockets.split(",").collect();
+        let p2p_address = P2PAddress::try_from(format!("{}@{}", sockets[0], value.public_key))
+            .map_err(|_e| InternalRecommendedError::Parse("Could not parse P2PAddress"))
+            .map_err(RecommendedError)?;
+        Ok(Self {
+            p2p_address,
+            alias: value.alias,
+            active_channel_count: value.active_channel_count,
+            capacity: value.capacity,
+        })
+    }
+}
+
+#[derive(serde_derive::Deserialize, serde_derive::Serialize)]
 pub struct Recommendations {
-    pub routing_node: Node,
-    pub edge_node: Node,
+    pub routing_node: NodeDTO,
+    pub edge_node: NodeDTO,
 }
 
 pub async fn get_recommended_channels() -> Result<Recommendations, RecommendedError> {
@@ -40,20 +69,25 @@ pub async fn get_recommended_channels() -> Result<Recommendations, RecommendedEr
     let mut high_cap_nodes = high_channel_nodes.clone();
     high_cap_nodes.sort_by(|a, b| a.capacity.partial_cmp(&b.capacity).unwrap());
 
-    let routing_node = get_node(&high_cap_nodes.index(0).public_key).await?;
-    let edge_node = get_node(&high_channel_nodes.index(0).public_key).await?;
+    let high_capacity_node = get_node(&high_cap_nodes.index(0).public_key).await?;
+    let high_channel_node = get_node(&high_channel_nodes.index(0).public_key).await?;
 
-    Ok(Recommendations { routing_node, edge_node })
+    Ok(Recommendations { routing_node: high_capacity_node, edge_node: high_channel_node })
 }
 
-async fn get_node(pubkey: &str) -> Result<Node, RecommendedError> {
+async fn get_node(pubkey: &P2PAddress) -> Result<NodeDTO, RecommendedError> {
     let base_url = format!("https://mempool.space/api/v1/lightning/nodes/{}", pubkey);
     let url = Url::parse(&base_url).map_err(InternalRecommendedError::Url)?;
 
     let res = reqwest::Client::new().get(url).send().await?;
-    let node: Node = res.json::<Node>().await?;
+    let mut node: Node = res.json::<Node>().await?;
 
-    Ok(node)
+    // Sockets are comma delim'd. First option is ip, second is Tor hidden service
+    // We always serve an ip P2P address to the user
+    let sockets: Vec<&str> = node.sockets.split(",").collect();
+    node.sockets = sockets[0].to_string();
+    let node_dto: NodeDTO = node.try_into()?;
+    Ok(node_dto)
 }
 
 #[derive(Debug)]
@@ -63,6 +97,7 @@ pub struct RecommendedError(InternalRecommendedError);
 pub(crate) enum InternalRecommendedError {
     Url(url::ParseError),
     Http(reqwest::Error),
+    Parse(&'static str),
 }
 
 impl From<InternalRecommendedError> for RecommendedError {

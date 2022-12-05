@@ -172,7 +172,7 @@
 					return;
 				}
 				const pubkey = node.public_key;
-				const socket = node.sockets.includes(',') ? node.sockets.split(',')[0] : node.sockets;
+				const socket = node.socket;
 				add_channel(`${pubkey}@${socket}`);
 
 			}
