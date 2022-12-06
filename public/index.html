@@ -234,6 +234,27 @@
 					});
 				return false; // don't trigger form action attribute, we submitted through js
 			});
+
+			async function pollNotification() {
+				let response = await fetch("/notification");
+
+				if (response.status == 502) {
+					// connection timeout, let's reconnect
+					await pollNotification();
+				} else if (response.status != 200) {
+					console.error(response.statusText);
+					await new Promise(resolve => setTimeout(resolve, 20_000));
+					await pollNotification();
+				} else {
+					let notification = await response.text();
+					if (notification) {
+						alert(notification);
+					}
+					await pollNotification();
+				}
+			};
+
+			pollNotification();
 		</script>
 	</body>
 </html>

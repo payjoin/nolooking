@@ -186,7 +186,7 @@ mod integration {
         let bind_addr =
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
                 .into();
-        let nolooking_server = http::serve(scheduler, bind_addr);
+        let nolooking_server = http::Server::new(scheduler, bind_addr);
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
@@ -265,7 +265,7 @@ mod integration {
 
         tokio::select! {
             _ = payjoin_channel_open => debug!("payjoin-client completed first"),
-            _ = nolooking_server => debug!("nolooking server stopped first. This shouldn't happen"),
+            _ = nolooking_server.serve() => debug!("nolooking server stopped first. This shouldn't happen"),
             _ = tokio::time::sleep(Duration::from_secs(20)) => debug!("payjoin timed out after 20 seconds"),
         };
 
