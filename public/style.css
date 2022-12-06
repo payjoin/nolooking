@@ -52,6 +52,7 @@ p {
 }
 
 main form {
+    max-width: 800px;
     background: var(--black);
     border-radius: var(--radius);
     padding: 2rem;
@@ -60,8 +61,6 @@ main form {
 form > * {
     padding-top: 2rem;
 }
-
-
 
 input {
     text-align: right;
