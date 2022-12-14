@@ -53,6 +53,7 @@ p {
 
 main form {
     max-width: 800px;
+    min-width: 40vw;
     background: var(--black);
     border-radius: var(--radius);
     padding: 2rem;
@@ -62,8 +63,12 @@ form > * {
     padding-top: 2rem;
 }
 
-input {
+input[type=number] {
     text-align: right;
+}
+
+#sent {
+  display: none;
 }
 
 legend {
