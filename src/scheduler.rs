@@ -497,10 +497,10 @@ impl Scheduler {
 
         log::debug!("res: {:#?}", &response);
         let response =
-            response.bytes().await.map_err(|_| SchedulerError::Internal("Bad response"))?;
+            response.text().await.map_err(|_| SchedulerError::Internal("Bad response"))?;
 
         let mut payjoin_psbt = ctx
-            .process_response(response.to_vec().as_slice())
+            .process_response(response.as_bytes())
             .map_err(|_| SchedulerError::Internal("bip78::sender ValidationError"))?;
 
         // fill in utxo info from original_psbt

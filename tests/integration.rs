@@ -224,10 +224,11 @@ mod integration {
             let mut res = channel_update.await.unwrap().into_inner();
             loop {
                 if let Ok(Some(channel_event)) = res.message().await {
+                    println!("{:?}", channel_event);
                     if channel_event.r#type()
                         == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel
                     {
-                        break;
+                        return channel_event.r#type();
                     }
                 }
             }
@@ -253,6 +254,7 @@ mod integration {
             peer_scheduler.send_payjoin(bip21, true).await.unwrap();
 
             // Confirm the newly opene transaction in new blocks
+            log::info!("generating 8 blocks");
             bitcoin_rpc.generate_to_address(8, &source_address).unwrap();
         });
 
@@ -263,8 +265,8 @@ mod integration {
         };
 
         tokio::select! {
-            _ = loop_til_open_channel => {
-                    fixture.test_succeeded = true;
+            event = loop_til_open_channel => {
+                    fixture.test_succeeded = event.unwrap() == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel;
                     log::info!("Channel opened!");
                 },
             _ = tokio::time::sleep(Duration::from_secs(6)) => log::info!("Channel open upate listener timed out"),
