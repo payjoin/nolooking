@@ -26,6 +26,6 @@ lnd_macaroon_path="/Users/dan/.polar/networks/0/volumes/lnd/alice/data/chain/bit
 
 6. start up nolooking `nolooking --conf regtest.conf`
 7. visit nolooking in your browser
-8. copy the P2P internall address for the second node in your polar network.
+8. copy the P2P internal address for the second node in your polar network.
 9. paste it into nolooking to complete the form and get a bip21
 10. pay the payjoin bip21 uri from a client configure to use polar bitcoind, perhaps JoinMarket or [payjoin-client](https://github.com/DanGould/rust-payjoin/tree/master/payjoin-client)
