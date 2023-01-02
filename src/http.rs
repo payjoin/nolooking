@@ -204,7 +204,7 @@ async fn handle_send(
     let request: bip78::Uri<'_> =
         bip78::Uri::try_from(pj_uri).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
 
-    let txid = scheduler.send_payjoin(request, true).await.map_err(PayJoinError::Scheduler)?;
+    let txid = scheduler.send_payjoin(request).await.map_err(PayJoinError::Scheduler)?;
     let mut response = Response::new(Body::from(txid.to_string()));
     response.headers_mut().insert(
         hyper::header::CONTENT_TYPE,

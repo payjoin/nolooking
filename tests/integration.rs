@@ -136,10 +136,20 @@ mod integration {
 
         // conf to merchant
         let endpoint: url::Url = "https://localhost:3010".parse().expect("not a valid Url");
+        let danger_accept_invalid_certs = true;
         log::info!("{}", &endpoint.clone().to_string());
         let conf_string = format!(
-            "bind_port=3000\nendpoint=\"{}\"\nlnd_address=\"{}\"\nlnd_cert_path=\"{}\"\nlnd_macaroon_path=\"{}\"",
-            &endpoint.clone().to_string(), &address_str, &cert_file, &macaroon_file
+            "bind_port=3000
+            endpoint=\"{}\"
+            lnd_address=\"{}\"
+            lnd_cert_path=\"{}\"
+            lnd_macaroon_path=\"{}\"
+            danger_accept_invalid_certs=\"{}\"", // ⚠️ "true" FOR TEST PURPOSES ONLY ⚠️
+            &endpoint.clone().to_string(),
+            &address_str,
+            &cert_file,
+            &macaroon_file,
+            danger_accept_invalid_certs
         );
         let nolooking_conf = format!("{}/nolooking.conf", &tmp_path);
         std::fs::write(&nolooking_conf, conf_string).expect("Unable to write nolooking.conf");
@@ -213,7 +223,11 @@ mod integration {
         let mut channels = Vec::with_capacity(1);
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
         let batch = ChannelBatch::new(channels, false, fee_rate);
-        let scheduler = Scheduler::new(LndClient::new(merchant_client).await.unwrap(), endpoint);
+        let scheduler = Scheduler::new(
+            LndClient::new(merchant_client).await.unwrap(),
+            endpoint,
+            danger_accept_invalid_certs,
+        );
         let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         log::info!("{}", &bip21);
 
@@ -243,15 +257,18 @@ mod integration {
         // Connecting to LND requires only address, cert file, and macaroon file
         let peer_client =
             tonic_lnd::connect(address_str, &cert_file, &macaroon_file).await.unwrap();
-        let peer_scheduler =
-            Scheduler::new(LndClient::new(peer_client).await.unwrap(), dead_end.clone());
+        let peer_scheduler = Scheduler::new(
+            LndClient::new(peer_client).await.unwrap(),
+            dead_end.clone(),
+            danger_accept_invalid_certs,
+        );
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
             std::thread::sleep(Duration::from_secs(2));
             // TODO loop on ping 3000 until it the server is live
             let bip21 = bip78::Uri::from_str(&bip21).unwrap();
-            peer_scheduler.send_payjoin(bip21, true).await.unwrap();
+            peer_scheduler.send_payjoin(bip21).await.unwrap();
 
             // Confirm the newly opene transaction in new blocks
             log::info!("generating 8 blocks");

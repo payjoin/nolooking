@@ -264,16 +264,17 @@ pub struct Scheduler {
     lnd: LndClient,
     endpoint: Url,
     pjs: Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>, // payjoins mapped by owned `scriptPubKey`s
+    danger_accept_invalid_certs: bool,
 }
 
 impl Scheduler {
     /// New [Scheduler].
-    pub fn new(lnd: LndClient, endpoint: Url) -> Self {
-        Self { lnd, endpoint, pjs: Default::default() }
+    pub fn new(lnd: LndClient, endpoint: Url, danger_accept_invalid_certs: bool) -> Self {
+        Self { lnd, endpoint, danger_accept_invalid_certs, pjs: Default::default() }
     }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests")))
+        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), config.danger_accept_invalid_certs ))
     }
 
     /// Schedules a payjoin.
@@ -437,15 +438,7 @@ impl Scheduler {
 
     /// Send a PayJoin from LND using automatic coin selection and
     /// automatic fee rate of 2 target confirmations.
-    ///
-    /// `danger_accept_self_signed_uri` should be used for testing only.
-    /// PayJoins are vulnerable to man-in-the-middle attacks, so they must
-    /// communicate over secure connections in production.
-    pub async fn send_payjoin<'a>(
-        &self,
-        uri: bip78::Uri<'_>,
-        danger_accept_self_signed_uri: bool,
-    ) -> Result<Txid, SchedulerError> {
+    pub async fn send_payjoin<'a>(&self, uri: bip78::Uri<'_>) -> Result<Txid, SchedulerError> {
         log::debug!("get original_psbt");
         let pj_uri = bip78::UriExt::check_pj_supported(uri)
             .map_err(|e| SchedulerError::UriDoesNotSupportPayJoin(e.to_string()))?;
@@ -461,7 +454,7 @@ impl Scheduler {
         log::debug!("sign original_psbt");
         let original_psbt = self.lnd.sign_psbt(original_psbt).await?;
         log::debug!("request_payjoin");
-        let res = self.request_payjoin(pj_uri, original_psbt, danger_accept_self_signed_uri).await;
+        let res = self.request_payjoin(pj_uri, original_psbt).await;
         if res.is_err() {
             self.lnd.release_utxos(leased_utxos).await?;
         } // else, those utxos are now spent and don't need to be released
@@ -472,7 +465,6 @@ impl Scheduler {
         &self,
         pj_uri: bip78::PjUri<'_>,
         original_psbt: PartiallySignedTransaction,
-        danger_accept_self_signed_uri: bool,
     ) -> Result<Txid, SchedulerError> {
         use bip78::PjUriExt;
 
@@ -483,7 +475,7 @@ impl Scheduler {
             .map_err(|_| SchedulerError::Internal("failed to make http pj request"))?;
 
         let http = reqwest::ClientBuilder::new()
-            .danger_accept_invalid_certs(danger_accept_self_signed_uri)
+            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
             .build()
             .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
 

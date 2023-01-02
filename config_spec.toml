@@ -43,3 +43,9 @@ name = "lnd_macaroon_path"
 type = "std::path::PathBuf"
 doc = "Path to LND macaroon with open channel permission"
 optional = false
+
+[[param]]
+name = "danger_accept_invalid_certs"
+type = "bool"
+doc = "If true, accept invalid TLS certificates. **Warning**: think very carefully before using this method. If invalid certificates are trusted, PayJoin is subject to man in the middle attacks and your bitcoins can be stolen. This introduces significant vulnerabilities, and should only be used for testing purposes."
+default = "false"
