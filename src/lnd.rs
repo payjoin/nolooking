@@ -5,17 +5,17 @@ use std::str::FromStr;
 use std::sync::Arc;
 
 use bitcoin::consensus::Decodable;
+use bitcoin::psbt::serialize::Serialize;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::{Address, Amount};
+use bitcoin::{Address, Amount, Transaction};
 use ln_types::P2PAddress;
-use log::{info, warn};
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
 use tonic_lnd::lnrpc::{
     FundingPsbtVerify, FundingTransitionMsg, OpenChannelRequest, OpenStatusUpdate,
     WalletBalanceRequest,
 };
-use tonic_lnd::walletrpc::RequiredReserveRequest;
+use tonic_lnd::walletrpc::{RequiredReserveRequest, UtxoLease};
 
 use crate::scheduler::ChannelId;
 
@@ -125,9 +125,10 @@ impl LndClient {
                 Update::PsbtFund(ready) => {
                     let psbt = PartiallySignedTransaction::consensus_decode(&mut &*ready.psbt)
                         .map_err(LndError::Decode)?;
-                    info!(
+                    log::info!(
                         "PSBT received from LND for pending chan id {:?}: {:#?}",
-                        pending_chan_id, psbt
+                        pending_chan_id,
+                        psbt
                     );
                     assert_eq!(psbt.unsigned_tx.output.len(), 1);
 
@@ -173,6 +174,133 @@ impl LndClient {
         Ok(())
     }
 
+    /// Creates a fully populated PSBT with 1 output to the specified address of the
+    /// specified amount. Coin selection is performed automatically. After either verifying the
+    /// inputs, all input UTXOs are locked with an internal LND app ID.
+    ///
+    /// NOTE: If this method returns without an error, it is the caller's responsibility to either
+    /// spend the locked UTXOs (by finalizing and then publishing the transaction) or to
+    /// call [`release_utxos`] to unlock the locked UTXOs in case of an error on the caller's side.
+    pub async fn fund_original_psbt(
+        &self,
+        address: &bitcoin::Address,
+        amount: bitcoin::Amount,
+    ) -> Result<(PartiallySignedTransaction, Vec<UtxoLease>), LndError> {
+        use tonic_lnd::walletrpc::fund_psbt_request::{Fees, Template};
+        use tonic_lnd::walletrpc::{FundPsbtRequest, TxTemplate};
+
+        log::debug!("fund_original_psbt");
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+
+        let mut outputs = std::collections::HashMap::new();
+        outputs.insert(address.to_string(), amount.as_sat());
+        let tx_template = TxTemplate { outputs, ..Default::default() };
+        let template = Some(Template::Raw(tx_template));
+        let fees = Some(Fees::TargetConf(2));
+        let fund_psbt = FundPsbtRequest { template, fees, ..Default::default() };
+
+        let response = client.fund_psbt(fund_psbt).await?;
+        let stream = response.get_ref();
+        let raw_psbt = stream.funded_psbt.as_slice();
+        let funded_psbt =
+            PartiallySignedTransaction::consensus_decode(raw_psbt).map_err(LndError::BadPsbt)?;
+        log::debug!("funded Original PSBT");
+
+        Ok((funded_psbt, stream.locked_utxos.clone()))
+    }
+
+    /// Expects a partial transaction with all inputs and outputs fully declared and
+    /// tries to sign all unsigned inputs that have all required fields (UTXO information, BIP32
+    /// derivation information, witness or sig scripts) set. If no error is returned, the PSBT is
+    /// ready to be given to the next signer or to be finalized if lnd was the last signer.
+    ///
+    /// NOTE: This RPC only signs inputs (and only those it can sign), it does not perform any
+    /// other tasks (such as coin selection, UTXO locking or input/output/fee value validation,
+    /// PSBT finalization). Any input that is incomplete will be skipped.
+    pub async fn sign_psbt(
+        &self,
+        funded_psbt: PartiallySignedTransaction,
+    ) -> Result<PartiallySignedTransaction, LndError> {
+        log::debug!("sign psbt");
+
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+
+        let funded_psbt = bitcoin::consensus::serialize(&funded_psbt);
+        let req = tonic_lnd::walletrpc::SignPsbtRequest { funded_psbt, ..Default::default() };
+        let res = client.sign_psbt(req).await?;
+        let stream = res.get_ref();
+        let signed_psbt = stream.signed_psbt.as_slice();
+
+        let tx =
+            PartiallySignedTransaction::consensus_decode(signed_psbt).map_err(LndError::BadPsbt)?;
+        log::debug!("signed PSBT");
+
+        Ok(tx)
+    }
+
+    /// Expects a partial transaction with all inputs and outputs fully declared and tries to sign
+    /// all inputs that belong to the wallet. Lnd must be the last signer of the transaction. That means,
+    /// if there are any unsigned non-witness inputs or inputs without UTXO information attached or inputs
+    /// without witness data that do not belong to lnd's wallet, this method will fail. If no error is returned,
+    /// the PSBT is ready to be extracted and the final TX within to be broadcast.
+    ///
+    /// NOTE: This method does NOT publish the transaction once finalized. It is the caller's responsibility to
+    /// either publish the transaction on success or call [`release_utxos`] in case of an error in this method.
+    pub async fn finalize_psbt(
+        &self,
+        funded_psbt: PartiallySignedTransaction,
+    ) -> Result<Transaction, LndError> {
+        log::debug!("finalize_psbt");
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+
+        let funded_psbt = bitcoin::consensus::serialize(&funded_psbt);
+        let req = tonic_lnd::walletrpc::FinalizePsbtRequest { funded_psbt, ..Default::default() };
+        let res = client.finalize_psbt(req).await?;
+        let stream = res.get_ref();
+        let raw_final_tx = stream.raw_final_tx.as_slice();
+        let tx = Transaction::consensus_decode(raw_final_tx).map_err(LndError::BadPsbt)?;
+        Ok(tx)
+    }
+
+    pub async fn release_utxos(&self, utxos: Vec<UtxoLease>) -> Result<(), LndError> {
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+        log::debug!("release_utxos");
+
+        for lease in utxos {
+            let req = tonic_lnd::walletrpc::ReleaseOutputRequest {
+                id: lease.id,
+                // lnd wont accept an OutPoint where both txid_bytes and txid_str are set
+                outpoint: lease.outpoint.map(|o| tonic_lnd::lnrpc::OutPoint {
+                    txid_bytes: o.txid_bytes,
+                    output_index: o.output_index,
+                    ..Default::default()
+                }),
+            };
+            client.release_output(req).await?;
+        }
+        log::debug!("released utxos");
+
+        Ok(())
+    }
+
+    pub async fn broadcast(&self, tx: Transaction) -> Result<bitcoin::Txid, LndError> {
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+
+        let req =
+            tonic_lnd::walletrpc::Transaction { tx_hex: tx.serialize(), ..Default::default() };
+        let res = client.publish_transaction(req).await?;
+        let stream = res.get_ref();
+        if &stream.publish_error != "" {
+            return Err(LndError::Publish(stream.publish_error.to_owned()));
+        }
+        Ok(tx.txid())
+    }
+
     pub async fn required_reserve(
         &self,
         additional_public_channels: u32,
@@ -208,6 +336,8 @@ pub enum LndError {
     UnexpectedUpdate(tonic_lnd::lnrpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
     LNDTooOld(String),
+    BadPsbt(bitcoin::consensus::encode::Error),
+    Publish(String),
 }
 
 impl fmt::Display for LndError {
@@ -229,6 +359,8 @@ impl fmt::Display for LndError {
                 "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
                 version
             ),
+            LndError::BadPsbt(error) => error.fmt(f),
+            LndError::Publish(error) => error.fmt(f),
         }
     }
 }
@@ -246,6 +378,8 @@ impl std::error::Error for LndError {
             Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),
             LndError::LNDTooOld(_) => None,
+            LndError::BadPsbt(error) => Some(error),
+            LndError::Publish(_) => None,
         }
     }
 }

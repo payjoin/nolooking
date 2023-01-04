@@ -6,7 +6,7 @@ use std::{fmt, io};
 use bip78::receiver::{Proposal, UncheckedProposal};
 use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::{Address, Amount, Script, TxOut};
+use bitcoin::{Address, Amount, Script, TxOut, Txid};
 use ln_types::P2PAddress;
 use log::{error, info};
 use tonic_lnd::lnrpc::OpenChannelRequest;
@@ -264,16 +264,17 @@ pub struct Scheduler {
     lnd: LndClient,
     endpoint: Url,
     pjs: Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>, // payjoins mapped by owned `scriptPubKey`s
+    danger_accept_invalid_certs: bool,
 }
 
 impl Scheduler {
     /// New [Scheduler].
-    pub fn new(lnd: LndClient, endpoint: Url) -> Self {
-        Self { lnd, endpoint, pjs: Default::default() }
+    pub fn new(lnd: LndClient, endpoint: Url, danger_accept_invalid_certs: bool) -> Self {
+        Self { lnd, endpoint, danger_accept_invalid_certs, pjs: Default::default() }
     }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests")))
+        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), config.danger_accept_invalid_certs ))
     }
 
     /// Schedules a payjoin.
@@ -389,7 +390,7 @@ impl Scheduler {
         proposal_psbt.consensus_encode(&mut raw_psbt)?;
         self.lnd.verify_funding(&raw_psbt, temporary_chan_ids).await?;
 
-        // TODO explain why we're doing this superfluous bit or remove it
+        // Remove vestigial invalid signature data from the Original PSBT
         let proposal_psbt =
             PartiallySignedTransaction::from_unsigned_tx(proposal_psbt.unsigned_tx.clone())
                 .expect("resetting tx failed");
@@ -434,6 +435,75 @@ impl Scheduler {
         }
         Ok(())
     }
+
+    /// Send a PayJoin from LND using automatic coin selection and
+    /// automatic fee rate of 2 target confirmations.
+    pub async fn send_payjoin<'a>(&self, uri: bip78::Uri<'_>) -> Result<Txid, SchedulerError> {
+        log::debug!("get original_psbt");
+        let pj_uri = bip78::UriExt::check_pj_supported(uri)
+            .map_err(|e| SchedulerError::UriDoesNotSupportPayJoin(e.to_string()))?;
+        let (original_psbt, leased_utxos) = if let Some(amount) = pj_uri.amount {
+            log::debug!("funding original_psbt");
+            self.lnd.fund_original_psbt(&pj_uri.address, amount).await?
+        } else {
+            return Err(SchedulerError::UriDoesNotSupportPayJoin(
+                "Missing amount. Make sure the bip21 uri specifies an amount".to_string(),
+            ));
+        };
+
+        log::debug!("sign original_psbt");
+        let original_psbt = self.lnd.sign_psbt(original_psbt).await?;
+        log::debug!("request_payjoin");
+        let res = self.request_payjoin(pj_uri, original_psbt).await;
+        if res.is_err() {
+            self.lnd.release_utxos(leased_utxos).await?;
+        } // else, those utxos are now spent and don't need to be released
+        res
+    }
+
+    async fn request_payjoin(
+        &self,
+        pj_uri: bip78::PjUri<'_>,
+        original_psbt: PartiallySignedTransaction,
+    ) -> Result<Txid, SchedulerError> {
+        use bip78::PjUriExt;
+
+        let pj_params = bip78::sender::Configuration::non_incentivizing();
+        let saved_inputs = original_psbt.inputs.clone();
+        let (req, ctx) = pj_uri
+            .create_pj_request(original_psbt.clone(), pj_params)
+            .map_err(|_| SchedulerError::Internal("failed to make http pj request"))?;
+
+        let http = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
+            .build()
+            .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
+
+        let response = http
+            .post(req.url)
+            .header("Content-Type", "text/plain")
+            .body(reqwest::Body::from(req.body))
+            .send()
+            .await
+            .map_err(|_| SchedulerError::Internal("PayJoin http request failed"))?;
+
+        log::debug!("res: {:#?}", &response);
+        let response =
+            response.text().await.map_err(|_| SchedulerError::Internal("Bad response"))?;
+
+        let mut payjoin_psbt = ctx
+            .process_response(response.as_bytes())
+            .map_err(|_| SchedulerError::Internal("bip78::sender ValidationError"))?;
+
+        // fill in utxo info from original_psbt
+        payjoin_psbt.inputs.splice(..saved_inputs.len(), saved_inputs);
+
+        log::debug!("Proposed psbt: {:#?}", &payjoin_psbt);
+        let tx = self.lnd.finalize_psbt(payjoin_psbt).await?;
+        log::debug!("Finalized tx: {:#?}", &tx);
+        let txid = self.lnd.broadcast(tx).await?;
+        Ok(txid)
+    }
 }
 
 pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> String {
@@ -464,6 +534,8 @@ pub enum SchedulerError {
     PayJoinCannotOpenAnyChannel,
     /// Original Psbt does not respect requested amount
     OriginalPsbtInvalidAmount,
+    /// Bip21 has no valid `pj=` parameter
+    UriDoesNotSupportPayJoin(String),
 }
 
 impl fmt::Display for SchedulerError {

@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
@@ -69,6 +70,7 @@ async fn handle_web_req(
         (&Method::GET, "/notification") => handle_notification(notifications.clone()).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
         (&Method::GET, "/recommend") => handle_recommendations().await,
+        (&Method::POST, "/send") => handle_send(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
     };
@@ -191,6 +193,26 @@ async fn handle_recommendations() -> Result<Response<Body>, HttpError> {
     Ok(response)
 }
 
+async fn handle_send(
+    scheduler: Scheduler,
+    req: Request<Body>,
+) -> Result<Response<Body>, PayJoinError> {
+    let bytes = hyper::body::to_bytes(req.into_body()).await?;
+    let pj_uri =
+        String::from_utf8(bytes.to_vec()).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
+    log::debug!("PayJoin uri: {}", pj_uri);
+    let request: bip78::Uri<'_> =
+        bip78::Uri::try_from(pj_uri).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
+
+    let txid = scheduler.send_payjoin(request).await.map_err(PayJoinError::Scheduler)?;
+    let mut response = Response::new(Body::from(txid.to_string()));
+    response.headers_mut().insert(
+        hyper::header::CONTENT_TYPE,
+        "text/plain".parse().map_err(|_| PayJoinError::Internal("Could not construct response"))?,
+    );
+    Ok(response)
+}
+
 pub(crate) struct Headers(hyper::HeaderMap);
 impl bip78::receiver::Headers for Headers {
     fn get_header(&self, key: &str) -> Option<&str> { self.0.get(key)?.to_str().ok() }
@@ -198,6 +220,7 @@ impl bip78::receiver::Headers for Headers {
 
 #[derive(Debug)]
 pub enum PayJoinError {
+    Internal(&'static str),
     Scheduler(SchedulerError),
     BadRequest(hyper::Error),
     Bip78Request(bip78::receiver::RequestError),
@@ -206,6 +229,7 @@ pub enum PayJoinError {
 impl std::fmt::Display for PayJoinError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::Internal(msg) => write!(f, "Internal error: {}", msg),
             Self::Scheduler(err) => write!(f, "Scheduler error: {}", err),
             Self::Bip78Request(err) => write!(f, "Bip78 request error: {:?}", err), // TODO impl Display for RequestError @bip78
             Self::BadRequest(_) => write!(f, "Bad request"),

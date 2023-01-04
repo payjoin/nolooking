@@ -25,7 +25,7 @@
 		</header>
 		<main class="center-axyz">
 			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
-			x-flex direction="column">
+			x-flex direction="column" id="batch-form">
 			<h3>Queue batches of lightning channels to open in a single transaction</h3>
 			<fieldset>
 					<legend>Lease Inbound Channel</legend>
@@ -88,6 +88,18 @@
 					<div id="lsp-response" class="invisible">
 						<!-- populated on POST /schedule response -->
 					</div>
+				</output>
+			</form>
+			<form action="/send" method="post" enctype="application/x-www-form-urlencoded"
+				x-flex direction="column" id="send-form">
+				<h3>Send PayJoin</h3>
+				
+				<label for="uri">Payment request (bitcoin: uri)</label>
+				<input type="text" name="uri" placeholder="bitcoin:..." required>
+
+				<button id="submit-send" type="submit" class="float-right colored-button" span="2">Send</button>
+				<output id="sent">
+					<p>this should be a real txid</p>
 				</output>
 			</form>
 		</main>
@@ -183,7 +195,7 @@
 				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
 			});
 
-			document.querySelector("form").addEventListener("submit", async (event) => {
+			document.querySelector("#batch-form").addEventListener("submit", async (event) => {
 				event.preventDefault();
 
 				// Disable hiddens if checkboxes are checked
@@ -229,6 +241,33 @@
 `
 							lspResponse.innerHTML = quoteTemplate;
 						}
+					})
+					.catch((err) => {
+						alert(err);
+					});
+				return false; // don't trigger form action attribute, we submitted through js
+			});
+
+			document.querySelector("#send-form").addEventListener("submit", async (event) => {
+				event.preventDefault();
+
+				let form = event.currentTarget;
+				let body = new FormData(form).get("uri");
+				console.debug(body);
+				let resource = form.action;
+				let options = {
+					method: form.method,
+					headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+					body: body,
+				};
+
+				await fetch(resource, options)
+					.then(async (r) => {
+						console.debug(r);
+
+						let output = document.querySelector("#send-form output");
+						let txid = await r.text();
+						output.innerHTML = `Transaction sent: <a href="https://blockstream.info/tx/${txid}">${txid}</a>`;
 					})
 					.catch((err) => {
 						alert(err);
