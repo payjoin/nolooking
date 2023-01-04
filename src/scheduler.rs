@@ -422,6 +422,26 @@ impl Scheduler {
         vout_pj_match
     }
 
+    // TODO: Make [Scheduler] instance method that takes tor proxy configuration
+    fn init_pj_http_client(&self) -> Result<reqwest::Client, SchedulerError> {
+        // the proxy can always be set and just fail if unavailable
+        let proxy = reqwest::Proxy::custom(move |url| {
+            // Proxy requests to .onion endpoints through Tor proxy
+            if url.host_str().unwrap_or("").ends_with(".onion") {
+                Some("http://127.0.0.1:9050")
+            } else {
+                None
+            }
+        });
+
+        let client = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
+            .proxy(proxy)
+            .build()
+            .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
+        Ok(client)
+    }
+
     /// Test that [ScheduledChannel] peer nodes are connected to ours
     pub async fn test_connections(&self, channels: &Vec<ScheduledChannel>) -> Result<(), LndError> {
         let handles = channels
@@ -474,10 +494,7 @@ impl Scheduler {
             .create_pj_request(original_psbt.clone(), pj_params)
             .map_err(|_| SchedulerError::Internal("failed to make http pj request"))?;
 
-        let http = reqwest::ClientBuilder::new()
-            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
-            .build()
-            .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
+        let http = self.init_pj_http_client()?;
 
         let response = http
             .post(req.url)
