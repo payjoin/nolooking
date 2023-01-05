@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
+use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
@@ -265,16 +266,29 @@ pub struct Scheduler {
     endpoint: Url,
     pjs: Arc<Mutex<HashMap<Script, ScheduledPayJoin>>>, // payjoins mapped by owned `scriptPubKey`s
     danger_accept_invalid_certs: bool,
+    tor_proxy_address: SocketAddr,
 }
 
 impl Scheduler {
     /// New [Scheduler].
-    pub fn new(lnd: LndClient, endpoint: Url, danger_accept_invalid_certs: bool) -> Self {
-        Self { lnd, endpoint, danger_accept_invalid_certs, pjs: Default::default() }
+    pub fn new(
+        lnd: LndClient,
+        endpoint: Url,
+        danger_accept_invalid_certs: bool,
+        tor_proxy_address: SocketAddr,
+    ) -> Self {
+        Self {
+            lnd,
+            endpoint,
+            danger_accept_invalid_certs,
+            tor_proxy_address,
+            pjs: Default::default(),
+        }
     }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), config.danger_accept_invalid_certs ))
+        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), 
+        config.danger_accept_invalid_certs, config.tor_proxy_address))
     }
 
     /// Schedules a payjoin.
@@ -422,6 +436,26 @@ impl Scheduler {
         vout_pj_match
     }
 
+    fn init_pj_http_client(&self) -> Result<reqwest::Client, SchedulerError> {
+        let tor_proxy_url = format!("socks5h://{}", self.tor_proxy_address);
+        // the proxy can always be set and just fail if unavailable
+        let proxy = reqwest::Proxy::custom(move |url| {
+            // Proxy requests to .onion endpoints through Tor proxy
+            if url.host_str().unwrap_or("").ends_with(".onion") {
+                Some(tor_proxy_url.clone())
+            } else {
+                None
+            }
+        });
+
+        let client = reqwest::ClientBuilder::new()
+            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
+            .proxy(proxy)
+            .build()
+            .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
+        Ok(client)
+    }
+
     /// Test that [ScheduledChannel] peer nodes are connected to ours
     pub async fn test_connections(&self, channels: &Vec<ScheduledChannel>) -> Result<(), LndError> {
         let handles = channels
@@ -474,10 +508,7 @@ impl Scheduler {
             .create_pj_request(original_psbt.clone(), pj_params)
             .map_err(|_| SchedulerError::Internal("failed to make http pj request"))?;
 
-        let http = reqwest::ClientBuilder::new()
-            .danger_accept_invalid_certs(self.danger_accept_invalid_certs)
-            .build()
-            .map_err(|_| SchedulerError::Internal("Failed to build http client"))?;
+        let http = self.init_pj_http_client()?;
 
         let response = http
             .post(req.url)

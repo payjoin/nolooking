@@ -227,6 +227,10 @@ mod integration {
             LndClient::new(merchant_client).await.unwrap(),
             endpoint,
             danger_accept_invalid_certs,
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                9050,
+            ),
         );
         let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         log::info!("{}", &bip21);
@@ -261,6 +265,10 @@ mod integration {
             LndClient::new(peer_client).await.unwrap(),
             dead_end.clone(),
             danger_accept_invalid_certs,
+            std::net::SocketAddr::new(
+                std::net::IpAddr::V4(std::net::Ipv4Addr::new(127, 0, 0, 1)),
+                9050,
+            ),
         );
         // trigger payjoin-client
         let payjoin_channel_open = tokio::spawn(async move {
