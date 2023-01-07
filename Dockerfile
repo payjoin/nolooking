@@ -53,10 +53,10 @@ USER 1000
 
 # Copy just the binary from our build stage
 COPY --from=chosen_builder /usr/local/cargo/bin/nolooking /usr/local/bin/nolooking
-COPY run_nolooking /usr/local/bin/run_nolooking
 COPY --chown=1000:1000 public/ /usr/share/nolooking/public/
 
 # Expose any necessary ports
 EXPOSE 4444
 # Run
-CMD ["run_nolooking"]
+ENTRYPOINT /usr/local/bin/nolooking
+CMD --bind-ip=0.0.0.0 --bind-port=4444 --lnd-address=https://lightning_lnd_1:$LND_GRPC_PORT --lnd-cert-path=$TLS_FILE --lnd-macaroon-path=$MACAROON_FILE --endpoint=http://$APP_HIDDEN_SERVICE --tor-proxy-address=$TOR_PROXY_IP:$TOR_PROXY_PORT
