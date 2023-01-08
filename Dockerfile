@@ -59,4 +59,4 @@ COPY --chown=1000:1000 public/ /usr/share/nolooking/public/
 EXPOSE 4444
 # Run
 ENTRYPOINT /usr/local/bin/nolooking
-CMD --bind-ip=0.0.0.0 --bind-port=4444 --lnd-address=https://$LND_HOST:$LND_GRPC_PORT --lnd-cert-path=$TLS_FILE --lnd-macaroon-path=$MACAROON_FILE --endpoint=http://$APP_HIDDEN_SERVICE --tor-proxy-address=$TOR_PROXY_IP:$TOR_PROXY_PORT
+CMD -- --bind-ip=0.0.0.0 --bind-port=4444 --lnd-address=https://$LND_HOST:$LND_GRPC_PORT --lnd-cert-path=$TLS_FILE --lnd-macaroon-path=$MACAROON_FILE --endpoint=http://$APP_HIDDEN_SERVICE --tor-proxy-address=$TOR_PROXY_IP:$TOR_PROXY_PORT
