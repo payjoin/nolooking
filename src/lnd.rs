@@ -194,7 +194,7 @@ impl LndClient {
         let client = client.wallet();
 
         let mut outputs = std::collections::HashMap::new();
-        outputs.insert(address.to_string(), amount.as_sat());
+        outputs.insert(address.to_string(), amount.to_sat());
         let tx_template = TxTemplate { outputs, ..Default::default() };
         let template = Some(Template::Raw(tx_template));
         let fees = Some(Fees::TargetConf(2));
@@ -202,9 +202,9 @@ impl LndClient {
 
         let response = client.fund_psbt(fund_psbt).await?;
         let stream = response.get_ref();
-        let raw_psbt = stream.funded_psbt.as_slice();
-        let funded_psbt =
-            PartiallySignedTransaction::consensus_decode(raw_psbt).map_err(LndError::BadPsbt)?;
+        let mut raw_psbt = stream.funded_psbt.as_slice();
+        let funded_psbt = PartiallySignedTransaction::consensus_decode(&mut raw_psbt)
+            .map_err(LndError::BadPsbt)?;
         log::debug!("funded Original PSBT");
 
         Ok((funded_psbt, stream.locked_utxos.clone()))
@@ -231,10 +231,10 @@ impl LndClient {
         let req = tonic_lnd::walletrpc::SignPsbtRequest { funded_psbt, ..Default::default() };
         let res = client.sign_psbt(req).await?;
         let stream = res.get_ref();
-        let signed_psbt = stream.signed_psbt.as_slice();
+        let mut signed_psbt = stream.signed_psbt.as_slice();
 
-        let tx =
-            PartiallySignedTransaction::consensus_decode(signed_psbt).map_err(LndError::BadPsbt)?;
+        let tx = PartiallySignedTransaction::consensus_decode(&mut signed_psbt)
+            .map_err(LndError::BadPsbt)?;
         log::debug!("signed PSBT");
 
         Ok(tx)
@@ -260,8 +260,8 @@ impl LndClient {
         let req = tonic_lnd::walletrpc::FinalizePsbtRequest { funded_psbt, ..Default::default() };
         let res = client.finalize_psbt(req).await?;
         let stream = res.get_ref();
-        let raw_final_tx = stream.raw_final_tx.as_slice();
-        let tx = Transaction::consensus_decode(raw_final_tx).map_err(LndError::BadPsbt)?;
+        let mut raw_final_tx = stream.raw_final_tx.as_slice();
+        let tx = Transaction::consensus_decode(&mut raw_final_tx).map_err(LndError::BadPsbt)?;
         Ok(tx)
     }
 

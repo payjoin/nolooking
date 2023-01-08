@@ -94,24 +94,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "cf9ff0bbfd639f15c74af777d81383cf53efb7c93613f6cab67c6c11e05bbf8b"
 
 [[package]]
-name = "bip21"
-version = "0.1.2"
-source = "git+https://github.com/DanGould/bip21.git?rev=f74dd0f#f74dd0fb452f7d1e25f2b2d892a170f76f59f752"
-dependencies = [
- "bitcoin",
- "percent-encoding-rfc3986",
-]
+name = "bech32"
+version = "0.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
-name = "bip78"
-version = "0.2.0-preview"
-source = "git+https://github.com/dangould/rust-payjoin?rev=8d9b7d6#8d9b7d6ee5907b068a54bf65fd6ad5744c402756"
+name = "bip21"
+version = "0.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1998475af29ccfb7c761bb624a16e501fc321510366012bc9cce267bc134aedc"
 dependencies = [
- "base64",
- "bip21",
- "bitcoin",
- "rand",
- "url",
+ "bitcoin 0.29.2",
+ "percent-encoding-rfc3986",
 ]
 
 [[package]]
@@ -126,9 +121,21 @@ version = "0.28.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4d30fb43d287492017964a1fd7d3f82e8cc760818471c6ef2d44111e317d5c3"
 dependencies = [
- "bech32",
- "bitcoin_hashes",
- "secp256k1",
+ "bech32 0.8.1",
+ "bitcoin_hashes 0.10.0",
+ "secp256k1 0.22.1",
+ "serde",
+]
+
+[[package]]
+name = "bitcoin"
+version = "0.29.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0694ea59225b0c5f3cb405ff3f670e4828358ed26aec49dc352f730f0cb1a8a3"
+dependencies = [
+ "bech32 0.9.1",
+ "bitcoin_hashes 0.11.0",
+ "secp256k1 0.24.2",
  "serde",
 ]
 
@@ -137,6 +144,15 @@ name = "bitcoin_hashes"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "006cc91e1a1d99819bc5b8214be3555c1f0611b169f527a1fdc54ed1f2b745b0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "bitcoin_hashes"
+version = "0.11.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "90064b8dee6815a6470d60bad07bbbaee885c0e12d04177138fa3291a01b7bc4"
 dependencies = [
  "serde",
 ]
@@ -160,7 +176,7 @@ version = "0.15.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2e2ae16202721ba8c3409045681fac790a5ddc791f05731a2df22c0c6bffc0f1"
 dependencies = [
- "bitcoin",
+ "bitcoin 0.28.2",
  "serde",
  "serde_json",
 ]
@@ -850,8 +866,7 @@ name = "nolooking"
 version = "0.3.1-alpha"
 dependencies = [
  "base64",
- "bip78",
- "bitcoin",
+ "bitcoin 0.29.2",
  "bitcoincore-rpc",
  "configure_me",
  "configure_me_codegen",
@@ -859,6 +874,7 @@ dependencies = [
  "hyper",
  "ln-types",
  "log",
+ "payjoin",
  "qrcode-generator",
  "rand",
  "rcgen",
@@ -925,6 +941,19 @@ name = "parse_arg"
 version = "0.1.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "14248cc8eced350e20122a291613de29e4fa129ba2731818c4cdbb44fccd3e55"
+
+[[package]]
+name = "payjoin"
+version = "0.5.1-alpha"
+source = "git+https://github.com/DanGould/rust-payjoin?branch=do-receive#e48402b97e1f194676d598fbb250eed2cedbc07b"
+dependencies = [
+ "base64",
+ "bip21",
+ "bitcoin 0.29.2",
+ "log",
+ "rand",
+ "url",
+]
 
 [[package]]
 name = "pem"
@@ -1355,7 +1384,18 @@ version = "0.22.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26947345339603ae8395f68e2f3d85a6b0a8ddfe6315818e80b8504415099db0"
 dependencies = [
- "secp256k1-sys",
+ "secp256k1-sys 0.5.2",
+ "serde",
+]
+
+[[package]]
+name = "secp256k1"
+version = "0.24.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d9512ffd81e3a3503ed401f79c33168b9148c75038956039166cd750eaa037c3"
+dependencies = [
+ "bitcoin_hashes 0.11.0",
+ "secp256k1-sys 0.6.1",
  "serde",
 ]
 
@@ -1364,6 +1404,15 @@ name = "secp256k1-sys"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "152e20a0fd0519390fc43ab404663af8a0b794273d2a91d60ad4a39f13ffe110"
+dependencies = [
+ "cc",
+]
+
+[[package]]
+name = "secp256k1-sys"
+version = "0.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "83080e2c2fc1006e625be82e5d1eb6a43b7fd9578b617fcc55814daf286bba4b"
 dependencies = [
  "cc",
 ]

@@ -4,12 +4,12 @@ use std::net::SocketAddr;
 use std::sync::{Arc, Mutex};
 use std::{fmt, io};
 
-use bip78::receiver::{Proposal, UncheckedProposal};
 use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut, Txid};
 use ln_types::P2PAddress;
 use log::{error, info};
+use payjoin::receiver::{Proposal, UncheckedProposal};
 use tonic_lnd::lnrpc::OpenChannelRequest;
 use url::Url;
 
@@ -107,7 +107,7 @@ impl ScheduledPayJoin {
             None => Amount::ZERO,
         };
 
-        (total_channel_amount + reserve_deposit + quote_amount + self.fees()).as_sat()
+        (total_channel_amount + reserve_deposit + quote_amount + self.fees()).to_sat()
             == our_output.value
     }
 
@@ -197,7 +197,7 @@ impl ScheduledPayJoin {
                     node_pubkey: chan.node.node_id.to_vec(),
                     local_funding_amount: chan
                         .amount
-                        .as_sat()
+                        .to_sat()
                         .try_into()
                         .expect("amount too large"),
                     push_sat: 0,
@@ -207,7 +207,7 @@ impl ScheduledPayJoin {
                     spend_unconfirmed: false,
                     close_address: String::new(),
                     funding_shim: Some(funding_shim),
-                    remote_max_value_in_flight_msat: chan.amount.as_sat() * 1000,
+                    remote_max_value_in_flight_msat: chan.amount.to_sat() * 1000,
                     remote_max_htlcs: 10,
                     max_local_csv: 288,
                     ..Default::default()
@@ -235,11 +235,11 @@ impl ScheduledPayJoin {
 
         // determine whether we substitute channel opens for the original psbt's ownedoutput to us
         if self.reserve_deposit() == bitcoin::Amount::ZERO {
-            assert_eq!(funding_txout.value, self.channels[0].amount.as_sat());
+            assert_eq!(funding_txout.value, self.channels[0].amount.to_sat());
             proposal_psbt.unsigned_tx.output[owned_vout] = funding_txout;
         } else {
             // or keep it and adjust the amount for the on-chain reserve deposit
-            proposal_psbt.unsigned_tx.output[owned_vout].value = self.reserve_deposit().as_sat();
+            proposal_psbt.unsigned_tx.output[owned_vout].value = self.reserve_deposit().to_sat();
             proposal_psbt.unsigned_tx.output.push(funding_txout)
         }
 
@@ -352,7 +352,7 @@ impl Scheduler {
             // This is interactive, NOT a Payment Processor, so we don't save original tx.
             // Humans can solve the failure case out of band by trying again.
             .assume_interactive_receive_endpoint()
-            .assume_no_inputs_owned() // TODO Check
+            .assume_inputs_not_owned() // TODO Check
             .assume_no_mixed_input_scripts() // This check is silly and could be ignored
             .assume_no_inputs_seen_before(); // TODO
 
@@ -472,9 +472,9 @@ impl Scheduler {
 
     /// Send a PayJoin from LND using automatic coin selection and
     /// automatic fee rate of 2 target confirmations.
-    pub async fn send_payjoin<'a>(&self, uri: bip78::Uri<'_>) -> Result<Txid, SchedulerError> {
+    pub async fn send_payjoin<'a>(&self, uri: payjoin::Uri<'_>) -> Result<Txid, SchedulerError> {
         log::debug!("get original_psbt");
-        let pj_uri = bip78::UriExt::check_pj_supported(uri)
+        let pj_uri = payjoin::UriExt::check_pj_supported(uri)
             .map_err(|e| SchedulerError::UriDoesNotSupportPayJoin(e.to_string()))?;
         let (original_psbt, leased_utxos) = if let Some(amount) = pj_uri.amount {
             log::debug!("funding original_psbt");
@@ -497,12 +497,12 @@ impl Scheduler {
 
     async fn request_payjoin(
         &self,
-        pj_uri: bip78::PjUri<'_>,
+        pj_uri: payjoin::PjUri<'_>,
         original_psbt: PartiallySignedTransaction,
     ) -> Result<Txid, SchedulerError> {
-        use bip78::PjUriExt;
+        use payjoin::PjUriExt;
 
-        let pj_params = bip78::sender::Configuration::non_incentivizing();
+        let pj_params = payjoin::sender::Configuration::non_incentivizing();
         let saved_inputs = original_psbt.inputs.clone();
         let (req, ctx) = pj_uri
             .create_pj_request(original_psbt.clone(), pj_params)
@@ -524,7 +524,7 @@ impl Scheduler {
 
         let mut payjoin_psbt = ctx
             .process_response(response.as_bytes())
-            .map_err(|_| SchedulerError::Internal("bip78::sender ValidationError"))?;
+            .map_err(|_| SchedulerError::Internal("payjoin::sender ValidationError"))?;
 
         // fill in utxo info from original_psbt
         payjoin_psbt.inputs.splice(..saved_inputs.len(), saved_inputs);
