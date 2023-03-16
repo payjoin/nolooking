@@ -2,3 +2,6 @@
 tests/compose/nginx/ssl/localhost-key.pem
 tests/compose/nginx/ssl/localhost.pem
 public/qr_codes/*.png
+*.DS_STORE
+*.conf
+*.vscode
