@@ -2,7 +2,6 @@ pub mod args;
 mod http;
 mod lnd;
 mod lsp;
-mod recommend;
 pub mod scheduler;
 
 use log::info;

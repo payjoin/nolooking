@@ -58,16 +58,6 @@
 					</p>
 					<div>
 				</fieldset>
-				<section>
-					<legend>Connect to a suggestion</legend>
-					<div class="recommendation-wrapper">
-						<div id="recommendations-loading-text" class="invisible">Loading...</div>
-						<div class="recommendation-button-wrapper">
-							<button type="button" class="colored-button" onclick="get_recommended_channels()">Get Recommended Channels</button>
-						</div>
-						<div id="recommendations"></div>
-					</div>
-				</section>
 				<br />
 				<div>
 					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
@@ -105,7 +95,6 @@
 		</main>
 		<script type="text/javascript">
 			const SATS_PER_BTC = 100_000_000
-			let recommendations;
 			function random_style() {
 				// Generate random colors for background, --primary and --secondary
 				// RGB triplet of (32 + $[0, 128]) for some base color, which is then reordered for the secondary color
@@ -140,53 +129,6 @@
 				}
 				channels.removeChild(channels.lastElementChild);
 				channels.removeChild(channels.lastElementChild);
-			}
-
-			async function get_recommended_channels(){
-				document.getElementsByClassName('recommendation-button-wrapper')[0].classList.add('invisible')
-				document.getElementById("recommendations-loading-text").classList.remove('invisible')
-				try {
-					recommendations = await (await fetch('/recommend', {
-						method: 'GET',
-					})).json()
-
-					for (var node_type in recommendations) {
-						let text = `
-						<div>
-							<h3>${node_type}</h3>
-							<small>a well connected node that is reliable for payments</small>
-							<br>
-							<br>
-							<ul>
-								<li>${recommendations[node_type].alias}</li>
-								<li>&nbsp;Active Capacity:&nbsp;₿${recommendations[node_type].capacity / SATS_PER_BTC} | &nbsp;Channel Count:&nbsp;${recommendations[node_type].active_channel_count}</li> 
-							</ul>
-							<div>
-								<button class="colored-button" type="button" onclick="add_recommended_node('${node_type}')">Use</button>	
-							</div>
-						</div>
-						<br>
-						`;
-						document.getElementById("recommendations").insertAdjacentHTML("beforeend", text);
-					}
-				} catch (error) {
-					console.error(error)
-					alert("Can't get suggestions. The recommendations server can't be reached. Try again later.")
-					document.getElementsByClassName('recommendation-button-wrapper')[0].classList.remove('invisible')
-
-				} finally {
-					document.getElementById("recommendations-loading-text").classList.add('invisible')
-				}
-			}
-
-			function add_recommended_node(type = 'routing_node') {
-				const node = recommendations[type];
-				if (!node) {
-					alert("Something went wrong trying to add node to channel list. Please try again or refresh.");
-					return;
-				}
-				add_channel(`${node.p2p_address}`);
-
 			}
 
 			random_style()

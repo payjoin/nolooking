@@ -12,7 +12,6 @@ use qrcode_generator::QrCodeEcc;
 use tokio::sync::Mutex;
 
 use crate::lsp::Quote;
-use crate::recommend::{get_recommended_channels, RecommendedError};
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(feature = "prod_public_path")]
@@ -69,7 +68,6 @@ async fn handle_web_req(
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::GET, "/notification") => handle_notification(notifications.clone()).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
-        (&Method::GET, "/recommend") => handle_recommendations().await,
         (&Method::POST, "/send") => handle_send(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
@@ -186,13 +184,6 @@ async fn handle_schedule(
     Ok(response)
 }
 
-async fn handle_recommendations() -> Result<Response<Body>, HttpError> {
-    let nodes = get_recommended_channels().await.unwrap();
-    let mut response = Response::new(Body::from(serde_json::to_string(&nodes).unwrap()));
-    response.headers_mut().insert(hyper::header::CONTENT_TYPE, "application/json".parse().unwrap());
-    Ok(response)
-}
-
 async fn handle_send(
     scheduler: Scheduler,
     req: Request<Body>,
@@ -254,7 +245,6 @@ pub enum HttpError {
     Scheduler(SchedulerError),
     SerdeQs(serde_qs::Error),
     SerdeJson(serde_json::Error),
-    Recommended(RecommendedError),
 }
 
 impl HttpError {
@@ -277,7 +267,6 @@ impl HttpError {
             | Self::Scheduler(_)
             | Self::SerdeQs(_)
             | Self::SerdeJson(_) => StatusCode::BAD_REQUEST,
-            Self::Recommended(_) => StatusCode::BAD_REQUEST,
         };
 
         // TODO: Avoid writing error directly to HTTP response (bad security if public facing)
@@ -309,8 +298,4 @@ impl From<SchedulerError> for HttpError {
 
 impl From<serde_qs::Error> for HttpError {
     fn from(e: serde_qs::Error) -> Self { Self::SerdeQs(e) }
-}
-
-impl From<RecommendedError> for HttpError {
-    fn from(e: RecommendedError) -> Self { Self::Recommended(e) }
 }
