@@ -944,8 +944,9 @@ checksum = "14248cc8eced350e20122a291613de29e4fa129ba2731818c4cdbb44fccd3e55"
 
 [[package]]
 name = "payjoin"
-version = "0.5.1-alpha"
-source = "git+https://github.com/DanGould/rust-payjoin?branch=do-receive#e48402b97e1f194676d598fbb250eed2cedbc07b"
+version = "0.6.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "95ee829f7c669ccf545e890b8c9e44094075bbebe5dc87ed1bcd2b5db335e20b"
 dependencies = [
  "base64",
  "bip21",

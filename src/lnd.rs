@@ -45,7 +45,7 @@ impl LndClient {
         let version = Self::parse_lnd_version(version_str)?;
 
         if version < (0, 15, 1) {
-            return Err(LndError::LNDTooOld(version_str.clone()));
+            return Err(LndError::LNDTooOld(version_str.into()));
         }
 
         Ok(Self(Arc::new(AsyncMutex::new(client))))

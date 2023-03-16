@@ -1,15 +1,17 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 use std::net::SocketAddr;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use tokio::sync::Mutex;
 use std::{fmt, io};
 
 use bitcoin::consensus::Encodable;
 use bitcoin::psbt::PartiallySignedTransaction;
 use bitcoin::{Address, Amount, Script, TxOut, Txid};
+use bitcoin::Transaction;
 use ln_types::P2PAddress;
 use log::{error, info};
-use payjoin::receiver::{Proposal, UncheckedProposal};
+use payjoin::receiver::UncheckedProposal;
 use tonic_lnd::lnrpc::OpenChannelRequest;
 use url::Url;
 
@@ -218,8 +220,9 @@ impl ScheduledPayJoin {
             .collect()
     }
 
-    // gen_funding_created AKA
-    fn substitue_psbt_outputs<I>(
+    /// Not easy to do this AND preserveoutputs.len() == 2
+    /// May we adjust the payjoin library to allow this?
+    fn substitute_psbt_outputs<I>(
         &self,
         original_psbt: PartiallySignedTransaction,
         owned_vout: usize, // the original vout paying us. This is the one we can substitute
@@ -236,14 +239,16 @@ impl ScheduledPayJoin {
         // determine whether we substitute channel opens for the original psbt's ownedoutput to us
         if self.reserve_deposit() == bitcoin::Amount::ZERO {
             assert_eq!(funding_txout.value, self.channels[0].amount.to_sat());
+            // TODO randomize insertion order
             proposal_psbt.unsigned_tx.output[owned_vout] = funding_txout;
         } else {
             // or keep it and adjust the amount for the on-chain reserve deposit
             proposal_psbt.unsigned_tx.output[owned_vout].value = self.reserve_deposit().to_sat();
+            // TODO randomize insertion order
             proposal_psbt.unsigned_tx.output.push(funding_txout)
         }
 
-        // add remaining funding txouts
+        // add remaining funding txouts // TODO Randomize insertion order
         proposal_psbt.unsigned_tx.output.extend(iter);
 
         // psbt should have outputs same length as contained unsigned tx
@@ -314,7 +319,7 @@ impl Scheduler {
         };
         let pj = &ScheduledPayJoin::new(missing_reserve, batch, inbound_quote.clone());
 
-        if self.insert_payjoin(&bitcoin_addr, pj) {
+        if self.insert_payjoin(&bitcoin_addr, pj).await {
             Ok((
                 format_bip21(bitcoin_addr.clone(), pj.total_amount(), self.endpoint.clone()),
                 bitcoin_addr,
@@ -345,33 +350,32 @@ impl Scheduler {
     ) -> Result<String, SchedulerError> {
         use std::str::FromStr;
 
-        if original_req.is_output_substitution_disabled() {
-            return Err(SchedulerError::OutputSubstitutionDisabled);
-        }
+        let fallback_tx = original_req.get_transaction_to_schedule_broadcast();
         let request = original_req
-            // This is interactive, NOT a Payment Processor, so we don't save original tx.
             // Humans can solve the failure case out of band by trying again.
-            .assume_interactive_receive_endpoint()
-            .assume_inputs_not_owned() // TODO Check
-            .assume_no_mixed_input_scripts() // This check is silly and could be ignored
-            .assume_no_inputs_seen_before(); // TODO
+            .assume_interactive_receiver()
 
-        let mut original_psbt = request.psbt().clone();
-        info!("Received psbt: {:#?}", original_psbt);
+            // TODO check
+            .check_inputs_not_owned(|_| true)?
+            .check_no_mixed_input_scripts()?
+
+             // TODO check, though this check is controversial since we're already breaking real "payjoin"
+            .check_no_inputs_seen_before(|_| true)?;
 
         // prepare proposal psbt (psbt, owned_vout, ScheduledPayJoin)
         let (owned_vout, pj) =
-            self.find_matching_payjoin(&original_psbt).ok_or(SchedulerError::NoMatchingPayJoin)?;
+            self.find_matching_payjoin(&fallback_tx).await.ok_or(SchedulerError::NoMatchingPayJoin)?;
+        
+        let pj_by_script = self.pjs.lock().await;
+        let request = request
+            .identify_receiver_outputs(|script| pj_by_script.contains_key(script))?;
+        std::mem::drop(pj_by_script);
+    
+        if request.is_output_substitution_disabled() {
+            return Err(SchedulerError::OutputSubstitutionDisabled);
+        }
 
-        // FIXME does this need to go before find_matching_payjoin(...) ?
-        // empty signatures because we won't broadcast the original psbt
-        original_psbt
-            .unsigned_tx
-            .input
-            .iter_mut()
-            .for_each(|txin| txin.script_sig = bitcoin::Script::default());
-
-        let our_output = &original_psbt.unsigned_tx.output[owned_vout];
+        let our_output = &fallback_tx.output[owned_vout];
         if !pj.is_paying_us_enough(our_output) {
             return Err(SchedulerError::OriginalPsbtInvalidAmount);
         }
@@ -394,21 +398,25 @@ impl Scheduler {
             txouts_to_substitute.push(inbound_txo);
         };
 
+        // TODO find privacy preserving let txins = request.try_preserving_privacy(lnd.list_unspent()) fails at outputs > 2
+
         // TODO ensure privacy preserving txo ordering. should be responsibility of payjoin lib
 
         // create and send `funding_created` to all responding lightning nodes
-        let proposal_psbt =
-            pj.substitue_psbt_outputs(original_psbt, owned_vout, txouts_to_substitute);
+        // let proposal_psbt =
+        //     pj.substitue_psbt_outputs(original_psbt, owned_vout, txouts_to_substitute);
 
-        let mut raw_psbt = Vec::new();
-        proposal_psbt.consensus_encode(&mut raw_psbt)?;
-        self.lnd.verify_funding(&raw_psbt, temporary_chan_ids).await?;
+        // let mut raw_psbt = Vec::new();
+        // proposal_psbt.consensus_encode(&mut raw_psbt)?;
+        // self.lnd.verify_funding(&raw_psbt, temporary_chan_ids).await?; // funding_created BOLT message
 
-        // Remove vestigial invalid signature data from the Original PSBT
-        let proposal_psbt =
-            PartiallySignedTransaction::from_unsigned_tx(proposal_psbt.unsigned_tx.clone())
-                .expect("resetting tx failed");
-        info!("Proposal PSBT that will be returned: {:#?}", proposal_psbt);
+        // // Remove vestigial invalid signature data from the Original PSBT
+        // let proposal_psbt =
+        //     PartiallySignedTransaction::from_unsigned_tx(proposal_psbt.unsigned_tx.clone())
+        //         .expect("resetting tx failed");
+        // info!("Proposal PSBT that will be returned: {:#?}", proposal_psbt);
+
+        let proposal_psbt = request.extract_psbt(Some(1))?;
 
         let mut psbt_bytes = Vec::new();
         proposal_psbt.consensus_encode(&mut psbt_bytes)?;
@@ -416,20 +424,20 @@ impl Scheduler {
     }
 
     /// Insert payjoin associated with bitcoin address.
-    fn insert_payjoin(&self, bitcoin_addr: &Address, pj: &ScheduledPayJoin) -> bool {
-        let mut pj_by_spk = self.pjs.lock().unwrap();
+    async fn insert_payjoin(&self, bitcoin_addr: &Address, pj: &ScheduledPayJoin) -> bool {
+        let mut pj_by_spk = self.pjs.lock().await;
         pj_by_spk.insert(bitcoin_addr.script_pubkey(), pj.clone()).is_none()
     }
 
     /// Get a prepared [ScheduledPayJoin] matching a PayJoin Request's Original PSBT
-    fn find_matching_payjoin(
+    async fn find_matching_payjoin(
         &self,
-        psbt: &PartiallySignedTransaction,
+        fallback_tx: &Transaction,
     ) -> Option<(usize, ScheduledPayJoin)> {
-        let mut pj_by_script = self.pjs.lock().unwrap();
+        let mut pj_by_script = self.pjs.lock().await;
 
         // find vout of owned output, pop scheduled psbt
-        let vout_pj_match = psbt.unsigned_tx.output.iter().enumerate().find_map(|(vout, txout)| {
+        let vout_pj_match = fallback_tx.output.iter().enumerate().find_map(|(vout, txout)| {
             pj_by_script.remove(&txout.script_pubkey).map(|pj| (vout, pj))
         });
 
@@ -516,7 +524,7 @@ impl Scheduler {
             .body(reqwest::Body::from(req.body))
             .send()
             .await
-            .map_err(|_| SchedulerError::Internal("PayJoin http request failed"))?;
+            .map_err(|e| SchedulerError::Reqwest(e))?;
 
         log::debug!("res: {:#?}", &response);
         let response =
@@ -557,6 +565,10 @@ pub enum SchedulerError {
     Internal(&'static str),
     // Could not decode psbt
     Io(io::Error),
+    /// Problem calling reqwest
+    Reqwest(reqwest::Error),
+    /// payjoin library request error
+    Request(payjoin::receiver::RequestError),
     /// Output Substitution is required to change the original output to a channel open
     OutputSubstitutionDisabled,
     /// No Original Psbt outputs match any [ScheduledPayJoin]
@@ -584,4 +596,8 @@ impl From<LndError> for SchedulerError {
 
 impl From<io::Error> for SchedulerError {
     fn from(v: io::Error) -> Self { Self::Io(v) }
+}
+
+impl From<payjoin::receiver::RequestError> for SchedulerError {
+    fn from(v: payjoin::receiver::RequestError) -> Self { Self::Request(v) }
 }

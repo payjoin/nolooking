@@ -13,7 +13,7 @@ prod_public_path = []
 
 [dependencies]
 bitcoin = { version = "0.29.2", features = ["serde"] }
-payjoin = { git = "https://github.com/DanGould/rust-payjoin", branch = "do-receive", features = ["sender", "receiver"] }
+payjoin = { version = "0.6.0", features = ["sender", "receiver"] }
 url = "2.2.2"
 hyper = "0.14.9"
 tonic_lnd = "0.5.0"

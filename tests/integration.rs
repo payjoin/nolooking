@@ -195,7 +195,7 @@ mod integration {
             .unwrap()
             .into_inner()
             .address;
-        let source_address = bitcoin::Address::from_str(&source_address).unwrap();
+        let source_address = bitcoincore_rpc::bitcoin::Address::from_str(&source_address).unwrap();
         bitcoin_rpc.generate_to_address(101, &source_address).unwrap();
         std::thread::sleep(Duration::from_secs(5));
         log::info!("SLEPT");
@@ -275,7 +275,7 @@ mod integration {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
             std::thread::sleep(Duration::from_secs(2));
             // TODO loop on ping 3000 until it the server is live
-            let bip21 = bip78::Uri::from_str(&bip21).unwrap();
+            let bip21 = payjoin::Uri::from_str(&bip21).unwrap();
             peer_scheduler.send_payjoin(bip21).await.unwrap();
 
             // Confirm the newly opene transaction in new blocks
