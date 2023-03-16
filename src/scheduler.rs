@@ -15,7 +15,6 @@ use url::Url;
 
 use crate::args::ArgError;
 use crate::lnd::{LndClient, LndError};
-use crate::lsp::{LspError, Quote};
 
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ScheduledChannel {
@@ -40,17 +39,15 @@ impl ScheduledChannel {
 #[derive(Clone, serde_derive::Deserialize, Debug)]
 pub struct ChannelBatch {
     channels: Vec<ScheduledChannel>,
-    wants_inbound_quote: bool,
     fee_rate: u64,
 }
 
 impl ChannelBatch {
-    pub fn new(channels: Vec<ScheduledChannel>, wants_inbound_quote: bool, fee_rate: u64) -> Self {
-        Self { channels, wants_inbound_quote, fee_rate }
+    pub fn new(channels: Vec<ScheduledChannel>, fee_rate: u64) -> Self {
+        Self { channels, fee_rate }
     }
 
     pub fn channels(&self) -> &Vec<ScheduledChannel> { &self.channels }
-    pub fn wants_inbound_quote(&self) -> bool { self.wants_inbound_quote }
     pub fn fee_rate(&self) -> u64 { self.fee_rate }
 }
 
@@ -62,21 +59,11 @@ pub struct ScheduledPayJoin {
     reserve_deposit: bitcoin::Amount,
     channels: Vec<ScheduledChannel>,
     fee_rate: u64,
-    quote: Option<crate::lsp::Quote>,
 }
 
 impl ScheduledPayJoin {
-    pub fn new(
-        reserve_deposit: bitcoin::Amount,
-        batch: ChannelBatch,
-        quote: Option<crate::lsp::Quote>,
-    ) -> Self {
-        Self {
-            reserve_deposit,
-            channels: batch.channels().clone(),
-            fee_rate: batch.fee_rate(),
-            quote,
-        }
+    pub fn new(reserve_deposit: bitcoin::Amount, batch: ChannelBatch) -> Self {
+        Self { reserve_deposit, channels: batch.channels().clone(), fee_rate: batch.fee_rate() }
     }
 
     fn total_amount(&self) -> bitcoin::Amount {
@@ -85,10 +72,6 @@ impl ScheduledPayJoin {
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add)
             + self.reserve_deposit
-            + match &self.quote {
-                Some(quote) => Amount::from_sat(quote.price.into()),
-                None => Amount::ZERO,
-            }
             + self.fees()
     }
 
@@ -102,13 +85,8 @@ impl ScheduledPayJoin {
             .map(|channel| channel.amount)
             .fold(bitcoin::Amount::ZERO, std::ops::Add::add);
         let reserve_deposit = self.reserve_deposit();
-        let quote_amount = match &self.quote {
-            Some(quote) => Amount::from_sat(quote.price.into()),
-            None => Amount::ZERO,
-        };
 
-        (total_channel_amount + reserve_deposit + quote_amount + self.fees()).as_sat()
-            == our_output.value
+        (total_channel_amount + reserve_deposit + self.fees()).as_sat() == our_output.value
     }
 
     /// This externally exposes [ScheduledPayJoin]::reserve_deposit.
@@ -119,7 +97,7 @@ impl ScheduledPayJoin {
         let channel_count = self.channels.len() as u64;
         let has_reserve_deposit = self.reserve_deposit != bitcoin::Amount::ZERO;
 
-        let mut additional_vsize = if has_reserve_deposit {
+        let additional_vsize = if has_reserve_deposit {
             // <8 invariant bytes = 4 version + 4 locktime>
             //  + 2 variant bytes for input.len + output.len such that each len < 252
             //  + OP_0 OP_PUSHBYTES_32 <32 byte script>
@@ -129,10 +107,6 @@ impl ScheduledPayJoin {
             // that's + 12 bytes
             (channel_count - 1) * (8 + 1 + 1 + 34) + 12
         };
-
-        if self.quote.is_some() {
-            additional_vsize = additional_vsize + (8 + 1 + 1 + 22); // P2WPKH (OP_0 OP_PUSHBYTES_20 <20 byte script)
-        }
 
         bitcoin::Amount::from_sat(self.fee_rate * additional_vsize)
     }
@@ -296,7 +270,7 @@ impl Scheduler {
         &self,
         batch: ChannelBatch,
         // TODO return bip21::Url Seems broken or incompatible with bip78 now
-    ) -> Result<(String, Address, Option<Quote>), SchedulerError> {
+    ) -> Result<(String, Address), SchedulerError> {
         self.test_connections(&batch.channels()).await?;
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
@@ -304,36 +278,17 @@ impl Scheduler {
         let wallet_balance = self.lnd.wallet_balance().await?;
         // Only add reserve if the wallet needs it
         let missing_reserve = required_reserve.checked_sub(wallet_balance).unwrap_or_default();
-        let inbound_quote = if batch.wants_inbound_quote() {
-            match self.request_quote().await {
-                Ok(quote) => Some(quote),
-                Err(e) => return Err(e),
-            }
-        } else {
-            None
-        };
-        let pj = &ScheduledPayJoin::new(missing_reserve, batch, inbound_quote.clone());
+
+        let pj = &ScheduledPayJoin::new(missing_reserve, batch);
 
         if self.insert_payjoin(&bitcoin_addr, pj) {
             Ok((
                 format_bip21(bitcoin_addr.clone(), pj.total_amount(), self.endpoint.clone()),
                 bitcoin_addr,
-                inbound_quote,
             ))
         } else {
             Err(SchedulerError::Internal("lnd provided duplicate bitcoin addresses"))
         }
-    }
-
-    /// Get a quote for an inbound channel from the nolooking service.
-    /// If the service is unavailable, just return None.
-    async fn request_quote(&self) -> Result<crate::lsp::Quote, SchedulerError> {
-        let p2p_address = self.lnd.get_p2p_address().await?;
-        let refund_address = self.lnd.get_new_bech32_address().await?;
-        let quote = crate::lsp::request_quote(&p2p_address, &refund_address)
-            .await
-            .map_err(SchedulerError::Lsp)?;
-        Ok(quote)
     }
 
     /// Given an Original PSBT request, respond with a PayJoin Proposal,
@@ -343,8 +298,6 @@ impl Scheduler {
         &self,
         original_req: UncheckedProposal,
     ) -> Result<String, SchedulerError> {
-        use std::str::FromStr;
-
         if original_req.is_output_substitution_disabled() {
             return Err(SchedulerError::OutputSubstitutionDisabled);
         }
@@ -379,20 +332,9 @@ impl Scheduler {
         // initiate multiple `open_channel` requests and return the vector:
         // Vec<(temporary_channel_id:, funding_txout:)>
         let open_chan_results = pj.multi_open_channel(&self.lnd).await?;
-        let mut txouts_to_substitute: Vec<TxOut> =
+        let txouts_to_substitute: Vec<TxOut> =
             open_chan_results.iter().map(|(_, txo)| txo.clone()).collect();
         let temporary_chan_ids = open_chan_results.iter().map(|(id, _)| *id);
-
-        // add the output paying for inbound
-        if let Some(quote) = &pj.quote {
-            let inbound_txo = bitcoin::blockdata::transaction::TxOut {
-                value: quote.price.into(),
-                script_pubkey: bitcoin::Address::from_str(&quote.address)
-                    .map_err(|_| SchedulerError::Internal("Could not parse address from LSP quote. Try again or don't request an inbound channel"))?
-                    .script_pubkey(),
-            };
-            txouts_to_substitute.push(inbound_txo);
-        };
 
         // TODO ensure privacy preserving txo ordering. should be responsibility of payjoin lib
 
@@ -549,8 +491,6 @@ pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> Str
 
 #[derive(Debug)]
 pub enum SchedulerError {
-    /// Error at the lightning service provider controller
-    Lsp(LspError),
     /// Error at the lightning node controller
     Lnd(LndError),
     /// Internal error that should not be shared

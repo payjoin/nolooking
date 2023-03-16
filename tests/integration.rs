@@ -222,7 +222,7 @@ mod integration {
         let fee_rate = 1;
         let mut channels = Vec::with_capacity(1);
         channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let batch = ChannelBatch::new(channels, false, fee_rate);
+        let batch = ChannelBatch::new(channels, fee_rate);
         let scheduler = Scheduler::new(
             LndClient::new(merchant_client).await.unwrap(),
             endpoint,
@@ -232,7 +232,7 @@ mod integration {
                 9050,
             ),
         );
-        let (bip21, _, _) = scheduler.schedule_payjoin(batch).await.unwrap();
+        let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         log::info!("{}", &bip21);
 
         let loop_til_open_channel = tokio::spawn(async move {
@@ -276,6 +276,7 @@ mod integration {
             std::thread::sleep(Duration::from_secs(2));
             // TODO loop on ping 3000 until it the server is live
             let bip21 = bip78::Uri::from_str(&bip21).unwrap();
+            println!("{:?}", bip21);
             peer_scheduler.send_payjoin(bip21).await.unwrap();
 
             // Confirm the newly opene transaction in new blocks

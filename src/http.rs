@@ -11,7 +11,6 @@ use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
 use tokio::sync::Mutex;
 
-use crate::lsp::Quote;
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(feature = "prod_public_path")]
@@ -160,7 +159,6 @@ async fn handle_notification(
 pub struct ScheduleResponse {
     bip21: String,
     address: String,
-    quote: Option<Quote>,
 }
 
 async fn handle_schedule(
@@ -172,10 +170,9 @@ async fn handle_schedule(
     let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
     let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
 
-    let (uri, address, quote) = scheduler.schedule_payjoin(request).await?;
+    let (uri, address) = scheduler.schedule_payjoin(request).await?;
 
-    let schedule_response =
-        ScheduleResponse { bip21: uri.clone(), address: address.to_string(), quote };
+    let schedule_response = ScheduleResponse { bip21: uri.clone(), address: address.to_string() };
     let mut response = Response::new(Body::from(
         serde_json::to_string(&schedule_response).map_err(HttpError::SerdeJson)?,
     ));
