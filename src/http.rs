@@ -11,8 +11,6 @@ use log::{debug, info};
 use qrcode_generator::QrCodeEcc;
 use tokio::sync::Mutex;
 
-use crate::lsp::Quote;
-use crate::recommend::{get_recommended_channels, RecommendedError};
 use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
 
 #[cfg(feature = "prod_public_path")]
@@ -69,7 +67,6 @@ async fn handle_web_req(
         (&Method::POST, "/pj") => handle_pj(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::GET, "/notification") => handle_notification(notifications.clone()).await,
         (&Method::POST, "/schedule") => handle_schedule(scheduler, req).await,
-        (&Method::GET, "/recommend") => handle_recommendations().await,
         (&Method::POST, "/send") => handle_send(scheduler, req).await.map_err(HttpError::PayJoin),
         (&Method::GET, path) => serve_public_file(path).await,
         _ => handle_404().await,
@@ -162,7 +159,6 @@ async fn handle_notification(
 pub struct ScheduleResponse {
     bip21: String,
     address: String,
-    quote: Option<Quote>,
 }
 
 async fn handle_schedule(
@@ -174,22 +170,14 @@ async fn handle_schedule(
     let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
     let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
 
-    let (uri, address, quote) = scheduler.schedule_payjoin(request).await?;
+    let (uri, address) = scheduler.schedule_payjoin(request).await?;
 
-    let schedule_response =
-        ScheduleResponse { bip21: uri.clone(), address: address.to_string(), quote };
+    let schedule_response = ScheduleResponse { bip21: uri.clone(), address: address.to_string() };
     let mut response = Response::new(Body::from(
         serde_json::to_string(&schedule_response).map_err(HttpError::SerdeJson)?,
     ));
     create_qr_code(&uri, &address.to_string());
     response.headers_mut().insert(hyper::header::CONTENT_TYPE, "application/json".parse()?);
-    Ok(response)
-}
-
-async fn handle_recommendations() -> Result<Response<Body>, HttpError> {
-    let nodes = get_recommended_channels().await.unwrap();
-    let mut response = Response::new(Body::from(serde_json::to_string(&nodes).unwrap()));
-    response.headers_mut().insert(hyper::header::CONTENT_TYPE, "application/json".parse().unwrap());
     Ok(response)
 }
 
@@ -254,7 +242,6 @@ pub enum HttpError {
     Scheduler(SchedulerError),
     SerdeQs(serde_qs::Error),
     SerdeJson(serde_json::Error),
-    Recommended(RecommendedError),
 }
 
 impl HttpError {
@@ -277,7 +264,6 @@ impl HttpError {
             | Self::Scheduler(_)
             | Self::SerdeQs(_)
             | Self::SerdeJson(_) => StatusCode::BAD_REQUEST,
-            Self::Recommended(_) => StatusCode::BAD_REQUEST,
         };
 
         // TODO: Avoid writing error directly to HTTP response (bad security if public facing)
@@ -309,8 +295,4 @@ impl From<SchedulerError> for HttpError {
 
 impl From<serde_qs::Error> for HttpError {
     fn from(e: serde_qs::Error) -> Self { Self::SerdeQs(e) }
-}
-
-impl From<RecommendedError> for HttpError {
-    fn from(e: RecommendedError) -> Self { Self::Recommended(e) }
 }

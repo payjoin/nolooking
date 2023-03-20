@@ -1,8 +1,6 @@
 pub mod args;
 mod http;
 mod lnd;
-mod lsp;
-mod recommend;
 pub mod scheduler;
 
 use log::info;
@@ -29,7 +27,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let scheduler = Scheduler::from_config(&config).await?;
 
     if let Some(batch) = channel_batch {
-        let (bip21, _, _) = scheduler.schedule_payjoin(batch).await?;
+        let (bip21, _) = scheduler.schedule_payjoin(batch).await?;
         info!("{}", bip21);
     }
 
