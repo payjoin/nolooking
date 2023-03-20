@@ -4,10 +4,11 @@ use std::num::TryFromIntError;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use bitcoin::consensus::Decodable;
+use bitcoin::consensus::{Decodable, Encodable};
+use bitcoin::hashes::Hash;
 use bitcoin::psbt::serialize::Serialize;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::{Address, Amount, Transaction};
+use bitcoin::{Address, Amount, OutPoint, Script, Transaction, Txid};
 use ln_types::P2PAddress;
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
@@ -15,7 +16,7 @@ use tonic_lnd::lnrpc::{
     FundingPsbtVerify, FundingTransitionMsg, OpenChannelRequest, OpenStatusUpdate,
     WalletBalanceRequest,
 };
-use tonic_lnd::walletrpc::{RequiredReserveRequest, UtxoLease};
+use tonic_lnd::walletrpc::{ListUnspentRequest, RequiredReserveRequest, UtxoLease};
 
 use crate::scheduler::ChannelId;
 
@@ -194,7 +195,7 @@ impl LndClient {
         let client = client.wallet();
 
         let mut outputs = std::collections::HashMap::new();
-        outputs.insert(address.to_string(), amount.as_sat());
+        outputs.insert(address.to_string(), amount.to_sat());
         let tx_template = TxTemplate { outputs, ..Default::default() };
         let template = Some(Template::Raw(tx_template));
         let fees = Some(Fees::TargetConf(2));
@@ -202,12 +203,72 @@ impl LndClient {
 
         let response = client.fund_psbt(fund_psbt).await?;
         let stream = response.get_ref();
-        let raw_psbt = stream.funded_psbt.as_slice();
-        let funded_psbt =
-            PartiallySignedTransaction::consensus_decode(raw_psbt).map_err(LndError::BadPsbt)?;
+        let mut raw_psbt = stream.funded_psbt.as_slice();
+        let funded_psbt = PartiallySignedTransaction::consensus_decode(&mut raw_psbt)
+            .map_err(LndError::BadPsbt)?;
         log::debug!("funded Original PSBT");
 
         Ok((funded_psbt, stream.locked_utxos.clone()))
+    }
+
+    pub async fn fund_psbt(
+        &self,
+        psbt: &PartiallySignedTransaction,
+    ) -> Result<(PartiallySignedTransaction, Vec<UtxoLease>), LndError> {
+        use tonic_lnd::walletrpc::fund_psbt_request::{Fees, Template};
+        use tonic_lnd::walletrpc::FundPsbtRequest;
+
+        log::debug!("fund_psbt");
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+        let mut psbt_bytes = Vec::new();
+        psbt.consensus_encode(&mut psbt_bytes).unwrap();
+        let template = Some(Template::Psbt(psbt_bytes));
+        let fees = Some(Fees::SatPerVbyte(1));
+        let fund_psbt = FundPsbtRequest { template, fees, ..Default::default() };
+
+        let response = client.fund_psbt(fund_psbt).await?;
+        let stream = response.get_ref();
+        let mut raw_psbt = stream.funded_psbt.as_slice();
+        let funded_psbt = PartiallySignedTransaction::consensus_decode(&mut raw_psbt)
+            .map_err(LndError::BadPsbt)?;
+        log::debug!("funded PSBT");
+
+        Ok((funded_psbt, stream.locked_utxos.clone()))
+    }
+
+    /// ListUnspent returns a list of all utxos spendable by the wallet with a number of
+    /// confirmationsbetween the specified minimum and maximum. By default, all utxos are listed.
+    /// To list only the unconfirmed utxos, set the unconfirmed_only to true.
+    ///
+    /// This returns a HashMap to address the needs of payjoin coin selection.
+    /// TODO replace HashMap with Vec in payjoin library. Amount collisions happen.
+    /// PSBTv2 Output is the most complete "utxo" data structure to return.
+    pub async fn list_unspent(&self) -> Result<Vec<(Amount, OutPoint, Script)>, LndError> {
+        let client = &mut *self.0.lock().await;
+        let client = client.wallet();
+
+        let list_unspent = ListUnspentRequest { ..Default::default() };
+        let response = client.list_unspent(list_unspent).await?;
+        let utxo_map = response
+            .into_inner()
+            .utxos
+            .into_iter()
+            .map(|utxo| {
+                if let Some(outpoint) = utxo.outpoint {
+                    let amount = Amount::from_sat(utxo.amount_sat as u64);
+                    let outpoint = OutPoint::new(
+                        Txid::from_slice(&outpoint.txid_bytes).unwrap(),
+                        outpoint.output_index,
+                    );
+                    let script = Script::from_str(&utxo.pk_script).unwrap(); // TODO handle unwraps
+                    Ok((amount, outpoint, script))
+                } else {
+                    Err(LndError::MissingOutpoint)
+                }
+            })
+            .collect::<Result<Vec<(Amount, OutPoint, Script)>, LndError>>()?;
+        Ok(utxo_map)
     }
 
     /// Expects a partial transaction with all inputs and outputs fully declared and
@@ -220,21 +281,21 @@ impl LndClient {
     /// PSBT finalization). Any input that is incomplete will be skipped.
     pub async fn sign_psbt(
         &self,
-        funded_psbt: PartiallySignedTransaction,
+        funded_psbt: &PartiallySignedTransaction,
     ) -> Result<PartiallySignedTransaction, LndError> {
         log::debug!("sign psbt");
 
-        let client = &mut *self.0.lock().await;
+        let client = &mut self.0.lock().await;
         let client = client.wallet();
 
         let funded_psbt = bitcoin::consensus::serialize(&funded_psbt);
         let req = tonic_lnd::walletrpc::SignPsbtRequest { funded_psbt, ..Default::default() };
         let res = client.sign_psbt(req).await?;
         let stream = res.get_ref();
-        let signed_psbt = stream.signed_psbt.as_slice();
+        let mut signed_psbt = stream.signed_psbt.as_slice();
 
-        let tx =
-            PartiallySignedTransaction::consensus_decode(signed_psbt).map_err(LndError::BadPsbt)?;
+        let tx = PartiallySignedTransaction::consensus_decode(&mut signed_psbt)
+            .map_err(LndError::BadPsbt)?;
         log::debug!("signed PSBT");
 
         Ok(tx)
@@ -260,8 +321,8 @@ impl LndClient {
         let req = tonic_lnd::walletrpc::FinalizePsbtRequest { funded_psbt, ..Default::default() };
         let res = client.finalize_psbt(req).await?;
         let stream = res.get_ref();
-        let raw_final_tx = stream.raw_final_tx.as_slice();
-        let tx = Transaction::consensus_decode(raw_final_tx).map_err(LndError::BadPsbt)?;
+        let mut raw_final_tx = stream.raw_final_tx.as_slice();
+        let tx = Transaction::consensus_decode(&mut raw_final_tx).map_err(LndError::BadPsbt)?;
         Ok(tx)
     }
 
@@ -338,6 +399,7 @@ pub enum LndError {
     LNDTooOld(String),
     BadPsbt(bitcoin::consensus::encode::Error),
     Publish(String),
+    MissingOutpoint,
 }
 
 impl fmt::Display for LndError {
@@ -361,6 +423,7 @@ impl fmt::Display for LndError {
             ),
             LndError::BadPsbt(error) => error.fmt(f),
             LndError::Publish(error) => error.fmt(f),
+            Self::MissingOutpoint => write!(f, "Missing outpoint"),
         }
     }
 }
@@ -380,6 +443,7 @@ impl std::error::Error for LndError {
             LndError::LNDTooOld(_) => None,
             LndError::BadPsbt(error) => Some(error),
             LndError::Publish(_) => None,
+            Self::MissingOutpoint => None,
         }
     }
 }
