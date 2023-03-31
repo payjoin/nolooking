@@ -2,7 +2,9 @@ use std::ffi::OsString;
 use std::fmt;
 use std::num::ParseIntError;
 
-use crate::scheduler::{ChannelBatch, ScheduledChannel};
+use bitcoin::Amount;
+
+use crate::scheduler::{PayjoinRequest, ScheduledChannel};
 
 /// CLI argument errors.
 #[derive(Debug)]
@@ -29,7 +31,7 @@ impl fmt::Display for ArgError {
 impl std::error::Error for ArgError {}
 
 /// Parses arguments in `[fee_rate] [(<p2p_addr>, <sats_amount>)...]`
-pub fn parse_args<A>(args: A) -> Result<Option<ChannelBatch>, ArgError>
+pub fn parse_args<A>(args: A) -> Result<Option<PayjoinRequest>, ArgError>
 where
     A: Iterator<Item = OsString>,
 {
@@ -60,5 +62,5 @@ where
 
     // ignore a remaining arguments
 
-    Ok(Some(ChannelBatch::new(channels, fee_rate)))
+    Ok(Some(PayjoinRequest::new(Amount::ZERO, Some(channels), fee_rate)))
 }

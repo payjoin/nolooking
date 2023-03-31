@@ -11,7 +11,7 @@ use payjoin::receiver::*;
 use qrcode_generator::QrCodeEcc;
 use tokio::sync::Mutex;
 
-use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
+use crate::scheduler::{PayjoinRequest, Scheduler, SchedulerError};
 
 #[cfg(feature = "prod_public_path")]
 const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
@@ -160,10 +160,7 @@ async fn handle_schedule(
     req: Request<Body>,
 ) -> Result<Response<Body>, HttpError> {
     let bytes = hyper::body::to_bytes(req.into_body()).await.map_err(HttpError::Hyper)?;
-    // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
-    let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
-    let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
-
+    let request: PayjoinRequest = serde_json::from_slice(&bytes).map_err(HttpError::SerdeJson)?;
     let (uri, address) = scheduler.schedule_payjoin(request).await?;
 
     let schedule_response = ScheduleResponse { bip21: uri.clone(), address: address.to_string() };

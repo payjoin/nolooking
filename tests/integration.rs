@@ -10,7 +10,7 @@ mod integration {
     use ln_types::P2PAddress;
     use nolooking::http;
     use nolooking::lnd::LndClient;
-    use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
+    use nolooking::scheduler::{PayjoinRequest, ScheduledChannel, Scheduler};
     use tempfile::tempdir;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
@@ -228,15 +228,9 @@ mod integration {
             .expect("failed to connect peers");
         log::info!("{:?}", connected);
 
-        let peer_address = format!("{}@{}", peer_id_pubkey, "peer_lnd:9735");
-        let peer_address = peer_address.parse::<P2PAddress>().expect("invalid ln P2PAddress");
-
-        let channel_capacity = bitcoin::Amount::from_sat(250000);
-
+        let amount = bitcoin::Amount::from_sat(250000);
         let fee_rate = 1;
-        let mut channels = Vec::with_capacity(1);
-        channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let batch = ChannelBatch::new(channels, fee_rate);
+        let batch = PayjoinRequest::new(amount, None, fee_rate);
         let scheduler = Scheduler::new(
             LndClient::new(merchant_client).await.unwrap(),
             endpoint,

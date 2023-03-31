@@ -39,17 +39,25 @@ impl ScheduledChannel {
 }
 
 #[derive(Clone, serde_derive::Deserialize, Debug)]
-pub struct ChannelBatch {
-    channels: Vec<ScheduledChannel>,
+pub struct PayjoinRequest {
+    #[serde(with = "bitcoin::util::amount::serde::as_sat")]
+    additional_reserve: bitcoin::Amount,
+    #[serde(default)]
+    channels: Option<Vec<ScheduledChannel>>,
     fee_rate: u64,
 }
 
-impl ChannelBatch {
-    pub fn new(channels: Vec<ScheduledChannel>, fee_rate: u64) -> Self {
-        Self { channels, fee_rate }
+impl PayjoinRequest {
+    pub fn new(
+        additional_reserve: Amount,
+        channels: Option<Vec<ScheduledChannel>>,
+        fee_rate: u64,
+    ) -> Self {
+        Self { additional_reserve, channels, fee_rate }
     }
 
-    pub fn channels(&self) -> &Vec<ScheduledChannel> { &self.channels }
+    pub fn additional_reserve(&self) -> Amount { self.additional_reserve }
+    pub fn channels(&self) -> Vec<ScheduledChannel> { self.channels.clone().unwrap_or_default() }
     pub fn fee_rate(&self) -> u64 { self.fee_rate }
 }
 
@@ -64,11 +72,12 @@ pub struct ScheduledPayJoin {
 }
 
 impl ScheduledPayJoin {
-    pub fn new(reserve_deposit: bitcoin::Amount, batch: ChannelBatch) -> Self {
+    pub fn new(reserve_deposit: bitcoin::Amount, batch: PayjoinRequest) -> Self {
         Self { reserve_deposit, channels: batch.channels().clone(), fee_rate: batch.fee_rate() }
     }
 
     fn total_amount(&self) -> bitcoin::Amount {
+        log::debug!("reserve_deposit: {}", self.reserve_deposit);
         self.channels
             .iter()
             .map(|channel| channel.amount)
@@ -97,6 +106,9 @@ impl ScheduledPayJoin {
     /// Calculate the absolute miner fee this [ScheduledPayJoin] pays
     fn fees(&self) -> bitcoin::Amount {
         let channel_count = self.channels.len() as u64;
+        if channel_count == 0 {
+            return bitcoin::Amount::ZERO;
+        }
         let has_reserve_deposit = self.reserve_deposit != bitcoin::Amount::ZERO;
 
         let additional_vsize = if has_reserve_deposit {
@@ -270,18 +282,18 @@ impl Scheduler {
     /// Schedules a payjoin.
     pub async fn schedule_payjoin(
         &self,
-        batch: ChannelBatch,
+        batch: PayjoinRequest,
         // TODO return bip21::Url Seems broken or incompatible with bip78 now
     ) -> Result<(String, Address), SchedulerError> {
-        self.test_connections(batch.channels()).await?;
+        self.test_connections(&batch.channels()).await?;
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
         log::debug!("bitcoin address to schedule: {:#?}", bitcoin_addr);
         let required_reserve = self.lnd.required_reserve(batch.channels().len() as u32).await?;
         let wallet_balance = self.lnd.wallet_balance().await?;
         // Only add reserve if the wallet needs it
         let missing_reserve = required_reserve.checked_sub(wallet_balance).unwrap_or_default();
-
-        let pj = &ScheduledPayJoin::new(missing_reserve, batch);
+        let reserve_deposit = missing_reserve + batch.additional_reserve();
+        let pj = &ScheduledPayJoin::new(reserve_deposit, batch);
         log::debug!("Scheduling payjoin: {:#?}", pj);
         if self.insert_payjoin(&bitcoin_addr, pj).await {
             log::debug!("Payjoin scheduled to {:#?}", bitcoin_addr);
@@ -490,7 +502,7 @@ impl Scheduler {
         use payjoin::PjUriExt;
 
         let pj_params = payjoin::sender::Configuration::non_incentivizing();
-        let saved_inputs = original_psbt.inputs.clone();
+        let mut original_inputs = original_psbt.inputs.iter();
         let (req, ctx) = pj_uri
             .create_pj_request(original_psbt.clone(), pj_params)
             .map_err(|_| SchedulerError::Internal("failed to make http pj request"))?;
@@ -513,7 +525,15 @@ impl Scheduler {
             ctx.process_response(response.as_bytes()).map_err(SchedulerError::SenderValidation)?;
 
         // fill in utxo info from original_psbt
-        payjoin_psbt.inputs.splice(..saved_inputs.len(), saved_inputs);
+        for input in payjoin_psbt.inputs.iter_mut() {
+            // sender inputs should be empty in the payjoin_psbt
+            if input.final_script_sig.is_none() && input.final_script_witness.is_none() {
+                *input = original_inputs
+                    .next()
+                    .expect("intputs already checked by process_response")
+                    .clone();
+            }
+        }
 
         log::debug!("Proposed psbt: {:#?}", &payjoin_psbt);
         let tx = self.lnd.finalize_psbt(payjoin_psbt).await?;

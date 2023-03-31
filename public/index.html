@@ -24,43 +24,28 @@
 			<h2>Alpha [experimental] | Avoid sp👀ks</h2>
 		</header>
 		<main class="center-axyz">
-			<form action="/schedule" method="post" enctype="application/x-www-form-urlencoded"
-			x-flex direction="column" id="batch-form">
-			<h3>Queue batches of lightning channels to open in a single transaction</h3>
-				<fieldset>
-					<legend>Queue Channels to Open</legend>
-					<x-grid columns=2>
-						<label id="destinationLabel" span=1>Destination Node</label><label id="capacityLabel" span=1>Channel Capacity (sats)</label>
-					</x-grid>
-					<x-grid columns=2 id="channels">
-						<input type="text" name="channels[0][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" required>
-						<!-- LND enforces minimum 20k sats channel -->
-						<input type="number" name="channels[0][amount]" min="20000" step="1" aria-labelledby="capacityLabel" required>
-					</x-grid>
-					<p>
-						<x-flex>
-							<button type="button" class="is-circle colored-button" onclick="add_channel()">+</button>
-							<button type="button" class="is-circle colored-button" onclick="remove_channel()">-</button>
-						</x-flex>
-					</p>
-					<div>
-				</fieldset>
-				<br />
+			<form action="/schedule" method="post" enctype="application/json"
+				x-flex direction="column" id="request-form">
+			<h3>Request PayJoin</h3>
+				<div>
+					<label for="additional_reserve">Request Amount (sats)</label>
+					<input type="number" name="additional_reserve" step="1" id="additional_reserve" required>
+				</div>
 				<div>
 					<label for="fee_rate">Maximum fee rate (sats/vB)</label>
 					<input type="number" name="fee_rate" id="feerate" value="1" min="1"><!-- /schedule api accepts u64 -->
 				</div>
-				<div id="queue">
+				<div id="request">
 					<x-grid columns=2>
-						<button type="submit" class="float-right colored-button" span="2">Generate Funding Request</button>
+						<button type="submit" class="float-right colored-button" span="2">Submit Request</button>
 					</x-grid>
 				</div>
-				<output id="queued" class="invisible">
-					<h2>PayJoin here to open these channels</h2>
+				<output id="scheduled" class="invisible">
+					<h2>PayJoin Request URI</h2>
 					<p class="warning">⚠ This software is still extremely experimental and has not been vetted, use at your own risk ⚠</p>
 					<div id="qrcode" class="center-axyz"></div>
 					<a href="" id="bip21"></a>
-					<p>Please pay using <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins!</p>
+					<p>Please pay using <a href="https://en.bitcoin.it/wiki/PayJoin_adoption" target="_blank">a wallet that supports</a> BIP 78 <a href="https://bitcoinmagazine.com/culture/blockchain-analysis-about-get-harder-p2ep-enters-testing-phase" target="blank">P2EP</a> PayJoins</p>
 					<br>
 				</output>
 			</form>
@@ -93,49 +78,22 @@
 				document.querySelector(':root').style.setProperty('--primary', "rgb(" + shifted + ")");
 				document.querySelector(':root').style.setProperty('--secondary', "rgb(" + color_triplet + ")");
 			}
-			
-			function add_channel(address=""){
-				const channels = document.getElementById("channels");
-				let indexToAdd = Math.floor(channels.children.length/2)
-				let div = document.createElement('div');
-				div.innerHTML = `<input type="text" value="${address}" name="channels[${indexToAdd}][node]" aria-labelledby="destinationLabel" placeholder="node@host:port" span="1" required><input type="number" name="channels[${indexToAdd}][amount]" min="20000" step="1" aria-labelledby="capacityLabel" span="1" required>`;
-				channels.appendChild(div.firstChild);
-				channels.appendChild(div.lastChild);
-				div.lastChild.focus();
-			}
-
-			function remove_channel() {
-				let channels = document.getElementById("channels");
-				let channelInputs = channels.getElementsByTagName("input");
-				if (channelInputs.length <= 2 ) {
-					// length <= [node id, channel capacity]
-					return;
-				}
-				channels.removeChild(channels.lastElementChild);
-				channels.removeChild(channels.lastElementChild);
-			}
 
 			random_style()
 
-			document.querySelector("#wantsInbound").addEventListener("input", async (event) => {
-				document.querySelector("#inboundCapacity").value = event.target.checked ? 1000000 : 0;
-			});
-
-			document.querySelector("#batch-form").addEventListener("submit", async (event) => {
+			document.querySelector("#request-form").addEventListener("submit", async (event) => {
 				event.preventDefault();
-
-				// Disable hiddens if checkboxes are checked
-				if(document.getElementById("wantsInbound").checked) {
-					document.getElementById('hiddenWantsInbound').disabled = true;
-				}
-
 				let form = event.currentTarget;
 				let resource = form.action;
+				let formData = new FormData(form);
+				let plainFormData = Object.fromEntries(formData.entries());
+				plainFormData.additional_reserve = parseInt(plainFormData.additional_reserve);
+				plainFormData.fee_rate = parseInt(plainFormData.additional_reserve);
+				const formDataJsonString = JSON.stringify(plainFormData);
 				let options = {
 					method: form.method,
-					headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-					// encode FormData as x-www-form-urlencoded
-					body: new URLSearchParams(new FormData(form)).toString()
+					headers: { 'Content-Type': 'application/json' },
+					body: formDataJsonString,
 				};
 
 				await fetch(resource, options)
@@ -150,8 +108,8 @@
 						link.innerHTML = r_json.bip21;
 
 						document.getElementById("qrcode").innerHTML = `<img src="/qr_codes/${r_json.address}.png" width="256px" />`;
-						document.getElementById("queue").classList.add("invisible");
-						document.getElementById("queued").classList.remove("invisible");
+						document.getElementById("request").classList.add("invisible");
+						document.getElementById("scheduled").classList.remove("invisible");
 					})
 					.catch((err) => {
 						alert(err);
@@ -178,6 +136,7 @@
 
 						let output = document.querySelector("#send-form output");
 						let txid = await r.text();
+						alert(txid);
 						output.innerHTML = `Transaction sent: <a href="https://blockstream.info/tx/${txid}">${txid}</a>`;
 					})
 					.catch((err) => {
