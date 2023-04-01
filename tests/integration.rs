@@ -7,10 +7,9 @@ mod integration {
     use std::time::Duration;
 
     use bitcoincore_rpc::{Auth, Client, RpcApi};
-    use ln_types::P2PAddress;
     use nolooking::http;
     use nolooking::lnd::LndClient;
-    use nolooking::scheduler::{ChannelBatch, ScheduledChannel, Scheduler};
+    use nolooking::scheduler::{PayjoinRequest, Scheduler};
     use tempfile::tempdir;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 
@@ -184,18 +183,32 @@ mod integration {
         let peer_id_pubkey = info.into_inner().identity_pubkey;
         log::info!("peer_id_pubkey: {:#?}", peer_id_pubkey);
 
-        // mine on-chain funds to peer_client
-        let source_address = peer_client
+        // mine on chain funds to both merchant and peer
+        const SEGWIT_TYPE: i32 = 0;
+        let merchant_address = merchant_client
             .lightning()
             .new_address(tonic_lnd::lnrpc::NewAddressRequest {
-                r#type: 4, //taproot
+                r#type: SEGWIT_TYPE,
                 ..Default::default()
             })
             .await
             .unwrap()
             .into_inner()
             .address;
-        let source_address = bitcoin::Address::from_str(&source_address).unwrap();
+        let merchant_address =
+            bitcoincore_rpc::bitcoin::Address::from_str(&merchant_address).unwrap();
+        bitcoin_rpc.generate_to_address(1, &merchant_address).unwrap();
+        let peer_address = peer_client
+            .lightning()
+            .new_address(tonic_lnd::lnrpc::NewAddressRequest {
+                r#type: SEGWIT_TYPE,
+                ..Default::default()
+            })
+            .await
+            .unwrap()
+            .into_inner()
+            .address;
+        let source_address = bitcoincore_rpc::bitcoin::Address::from_str(&peer_address).unwrap();
         bitcoin_rpc.generate_to_address(101, &source_address).unwrap();
         std::thread::sleep(Duration::from_secs(5));
         log::info!("SLEPT");
@@ -214,15 +227,9 @@ mod integration {
             .expect("failed to connect peers");
         log::info!("{:?}", connected);
 
-        let peer_address = format!("{}@{}", peer_id_pubkey, "peer_lnd:9735");
-        let peer_address = peer_address.parse::<P2PAddress>().expect("invalid ln P2PAddress");
-
-        let channel_capacity = bitcoin::Amount::from_sat(250000);
-
+        let amount = bitcoin::Amount::from_sat(250000);
         let fee_rate = 1;
-        let mut channels = Vec::with_capacity(1);
-        channels.push(ScheduledChannel::new(peer_address, channel_capacity));
-        let batch = ChannelBatch::new(channels, fee_rate);
+        let batch = PayjoinRequest::new(amount, None, fee_rate);
         let scheduler = Scheduler::new(
             LndClient::new(merchant_client).await.unwrap(),
             endpoint,
@@ -234,23 +241,6 @@ mod integration {
         );
         let (bip21, _) = scheduler.schedule_payjoin(batch).await.unwrap();
         log::info!("{}", &bip21);
-
-        let loop_til_open_channel = tokio::spawn(async move {
-            let channel_update = peer_client
-                .lightning()
-                .subscribe_channel_events(tonic_lnd::lnrpc::ChannelEventSubscription {});
-            let mut res = channel_update.await.unwrap().into_inner();
-            loop {
-                if let Ok(Some(channel_event)) = res.message().await {
-                    println!("{:?}", channel_event);
-                    if channel_event.r#type()
-                        == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel
-                    {
-                        return channel_event.r#type();
-                    }
-                }
-            }
-        });
 
         let bind_addr =
             (if env::consts::OS == "macos" { [127, 0, 0, 1] } else { [172, 17, 0, 1] }, 3000)
@@ -271,11 +261,11 @@ mod integration {
             ),
         );
         // trigger payjoin-client
-        let payjoin_channel_open = tokio::spawn(async move {
+        let send_payjoin = tokio::spawn(async move {
             // if we don't wait for nolooking server to run we'll make requests to a closed port
             std::thread::sleep(Duration::from_secs(2));
             // TODO loop on ping 3000 until it the server is live
-            let bip21 = bip78::Uri::from_str(&bip21).unwrap();
+            let bip21 = payjoin::Uri::from_str(&bip21).unwrap();
             println!("{:?}", bip21);
             peer_scheduler.send_payjoin(bip21).await.unwrap();
 
@@ -285,17 +275,12 @@ mod integration {
         });
 
         tokio::select! {
-            _ = payjoin_channel_open => log::info!("payjoin-client completed first"),
+            _ = send_payjoin => {
+                fixture.test_succeeded = true; // assume successful payjoin if we get here
+                log::info!("payjoin-client completed first");
+            },
             _ = nolooking_server.serve() => log::info!("nolooking server stopped first. This shouldn't happen"),
             _ = tokio::time::sleep(Duration::from_secs(20)) => log::info!("payjoin timed out after 20 seconds"),
-        };
-
-        tokio::select! {
-            event = loop_til_open_channel => {
-                    fixture.test_succeeded = event.unwrap() == tonic_lnd::lnrpc::channel_event_update::UpdateType::OpenChannel;
-                    log::info!("Channel opened!");
-                },
-            _ = tokio::time::sleep(Duration::from_secs(6)) => log::info!("Channel open upate listener timed out"),
         };
 
         Ok(())

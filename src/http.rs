@@ -4,14 +4,14 @@ use std::net::SocketAddr;
 use std::path::Path;
 use std::sync::Arc;
 
-use bip78::receiver::*;
 use hyper::service::{make_service_fn, service_fn};
 use hyper::{Body, Method, Request, Response, StatusCode};
 use log::{debug, info};
+use payjoin::receiver::*;
 use qrcode_generator::QrCodeEcc;
 use tokio::sync::Mutex;
 
-use crate::scheduler::{ChannelBatch, Scheduler, SchedulerError};
+use crate::scheduler::{PayjoinRequest, Scheduler, SchedulerError};
 
 #[cfg(feature = "prod_public_path")]
 const PUBLIC_DIR: &str = "/usr/share/nolooking/public";
@@ -120,13 +120,7 @@ async fn handle_pj(
     debug!("{:?}", req.uri().query());
 
     let headers = Headers(req.headers().to_owned());
-    let query = {
-        let uri = req.uri();
-        if let Some(query) = uri.query() {
-            let _ = query.to_owned();
-        }
-        None
-    };
+    let query = &req.uri().query().unwrap_or("").to_owned();
     let body = req.into_body();
     let bytes = hyper::body::to_bytes(body).await?;
     let reader = &*bytes;
@@ -166,10 +160,7 @@ async fn handle_schedule(
     req: Request<Body>,
 ) -> Result<Response<Body>, HttpError> {
     let bytes = hyper::body::to_bytes(req.into_body()).await.map_err(HttpError::Hyper)?;
-    // deserialize x-www-form-urlencoded data with non-strict encoded "channel[arrayindex]"
-    let conf = serde_qs::Config::new(5, false); // 5 is default max_depth
-    let request: ChannelBatch = conf.deserialize_bytes(&bytes)?;
-
+    let request: PayjoinRequest = serde_json::from_slice(&bytes).map_err(HttpError::SerdeJson)?;
     let (uri, address) = scheduler.schedule_payjoin(request).await?;
 
     let schedule_response = ScheduleResponse { bip21: uri.clone(), address: address.to_string() };
@@ -189,8 +180,8 @@ async fn handle_send(
     let pj_uri =
         String::from_utf8(bytes.to_vec()).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
     log::debug!("PayJoin uri: {}", pj_uri);
-    let request: bip78::Uri<'_> =
-        bip78::Uri::try_from(pj_uri).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
+    let request: payjoin::Uri<'_> =
+        payjoin::Uri::try_from(pj_uri).map_err(|_| PayJoinError::Internal("Bad PayJoin uri"))?;
 
     let txid = scheduler.send_payjoin(request).await.map_err(PayJoinError::Scheduler)?;
     let mut response = Response::new(Body::from(txid.to_string()));
@@ -202,7 +193,7 @@ async fn handle_send(
 }
 
 pub(crate) struct Headers(hyper::HeaderMap);
-impl bip78::receiver::Headers for Headers {
+impl payjoin::receiver::Headers for Headers {
     fn get_header(&self, key: &str) -> Option<&str> { self.0.get(key)?.to_str().ok() }
 }
 
@@ -211,7 +202,7 @@ pub enum PayJoinError {
     Internal(&'static str),
     Scheduler(SchedulerError),
     BadRequest(hyper::Error),
-    Bip78Request(bip78::receiver::RequestError),
+    Bip78Request(payjoin::receiver::RequestError),
 }
 
 impl std::fmt::Display for PayJoinError {
@@ -225,8 +216,8 @@ impl std::fmt::Display for PayJoinError {
     }
 }
 
-impl From<bip78::receiver::RequestError> for PayJoinError {
-    fn from(e: bip78::receiver::RequestError) -> Self { Self::Bip78Request(e) }
+impl From<payjoin::receiver::RequestError> for PayJoinError {
+    fn from(e: payjoin::receiver::RequestError) -> Self { Self::Bip78Request(e) }
 }
 
 impl From<hyper::Error> for PayJoinError {
