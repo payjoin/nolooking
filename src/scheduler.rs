@@ -315,11 +315,13 @@ impl Scheduler {
     ) -> Result<String, SchedulerError> {
         let fallback_tx = original_req.get_transaction_to_schedule_broadcast();
         log::debug!("original PSBT fallback tx: {:#?}", fallback_tx);
+        let network = self.lnd.get_network().await?;
+        let owned_unspent = self.lnd.list_unspent().await?;
+        let owned_scripts = owned_unspent.iter().map(|(_, _, script)| script).collect::<Vec<_>>();
         let request = original_req
             // Humans can solve the failure case out of band by trying again.
             .assume_interactive_receiver()
-            // TODO check
-            .check_inputs_not_owned(|_| false)?
+            .check_inputs_not_owned(|script| owned_scripts.contains(&script))?
             .check_no_mixed_input_scripts()?
             // TODO check, though this check is controversial since we're already breaking real "payjoin"
             .check_no_inputs_seen_before(|_| false)?;
@@ -329,7 +331,6 @@ impl Scheduler {
         log::debug!("find outputs that pay the receiver...");
         let pj_by_script = self.pjs.lock().await;
         log::debug!("pj_by_script: {:#?}", pj_by_script);
-        let network = self.lnd.get_network().await?;
         let mut payjoin_proposal = request.identify_receiver_outputs(|script| {
             let addr = Address::from_script(script, network).expect("script is valid");
             log::debug!("checking if output pays us: {:#?}", addr);
