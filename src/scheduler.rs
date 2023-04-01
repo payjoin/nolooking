@@ -73,7 +73,7 @@ pub struct ScheduledPayJoin {
 
 impl ScheduledPayJoin {
     pub fn new(reserve_deposit: bitcoin::Amount, batch: PayjoinRequest) -> Self {
-        Self { reserve_deposit, channels: batch.channels().clone(), fee_rate: batch.fee_rate() }
+        Self { reserve_deposit, channels: batch.channels(), fee_rate: batch.fee_rate() }
     }
 
     fn total_amount(&self) -> bitcoin::Amount {
@@ -329,9 +329,9 @@ impl Scheduler {
         log::debug!("find outputs that pay the receiver...");
         let pj_by_script = self.pjs.lock().await;
         log::debug!("pj_by_script: {:#?}", pj_by_script);
+        let network = self.lnd.get_network().await?;
         let mut payjoin_proposal = request.identify_receiver_outputs(|script| {
-            let addr =
-                Address::from_script(script, bitcoin::Network::Regtest).expect("script is valid");
+            let addr = Address::from_script(script, network).expect("script is valid");
             log::debug!("checking if output pays us: {:#?}", addr);
             pj_by_script.contains_key(script)
         })?;

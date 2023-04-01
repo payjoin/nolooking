@@ -7,10 +7,9 @@ mod integration {
     use std::time::Duration;
 
     use bitcoincore_rpc::{Auth, Client, RpcApi};
-    use ln_types::P2PAddress;
     use nolooking::http;
     use nolooking::lnd::LndClient;
-    use nolooking::scheduler::{PayjoinRequest, ScheduledChannel, Scheduler};
+    use nolooking::scheduler::{PayjoinRequest, Scheduler};
     use tempfile::tempdir;
     use tonic_lnd::lnrpc::{ConnectPeerRequest, LightningAddress};
 

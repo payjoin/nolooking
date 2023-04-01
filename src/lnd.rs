@@ -8,7 +8,7 @@ use bitcoin::consensus::{Decodable, Encodable};
 use bitcoin::hashes::Hash;
 use bitcoin::psbt::serialize::Serialize;
 use bitcoin::psbt::PartiallySignedTransaction;
-use bitcoin::{Address, Amount, OutPoint, Script, Transaction, Txid};
+use bitcoin::{Address, Amount, Network, OutPoint, Script, Transaction, Txid};
 use ln_types::P2PAddress;
 use tokio::sync::Mutex as AsyncMutex;
 use tonic_lnd::lnrpc::funding_transition_msg::Trigger;
@@ -85,6 +85,24 @@ impl LndClient {
                 result?;
                 Ok(())
             }
+        }
+    }
+
+    pub async fn get_network(&self) -> Result<Network, LndError> {
+        let response =
+            self.0.lock().await.lightning().get_info(tonic_lnd::lnrpc::GetInfoRequest {}).await?;
+        match response.into_inner().chains.into_iter().find(|chain| chain.chain == "bitcoin") {
+            Some(chain) => {
+                let network = match chain.network.as_ref() {
+                    "mainnet" => Network::Bitcoin,
+                    "testnet" => Network::Testnet,
+                    "regtest" => Network::Regtest,
+                    "simnet" => Network::Signet,
+                    _ => return Err(LndError::UnknownNetwork(chain.network)),
+                };
+                Ok(network)
+            }
+            None => Err(LndError::UnknownNetwork("No bitcoin network found".to_owned())),
         }
     }
 
@@ -396,6 +414,7 @@ pub enum LndError {
     VersionRequestFailed(tonic_lnd::Error),
     UnexpectedUpdate(tonic_lnd::lnrpc::open_status_update::Update),
     ParseVersionFailed { version: String, error: std::num::ParseIntError },
+    UnknownNetwork(String),
     LNDTooOld(String),
     BadPsbt(bitcoin::consensus::encode::Error),
     Publish(String),
@@ -416,6 +435,7 @@ impl fmt::Display for LndError {
             LndError::ParseVersionFailed { version, error: _ } => {
                 write!(f, "Unparsable LND version '{}'", version)
             }
+            Self::UnknownNetwork(network) => write!(f, "Unknown network {}", network),
             LndError::LNDTooOld(version) => write!(
                 f,
                 "LND version {} is too old - it would cause GUARANTEED LOSS of sats!",
@@ -440,6 +460,7 @@ impl std::error::Error for LndError {
             LndError::VersionRequestFailed(e) => Some(e),
             Self::UnexpectedUpdate(_) => None,
             LndError::ParseVersionFailed { version: _, error } => Some(error),
+            Self::UnknownNetwork(_) => None,
             LndError::LNDTooOld(_) => None,
             LndError::BadPsbt(error) => Some(error),
             LndError::Publish(_) => None,
