@@ -323,30 +323,29 @@ impl Scheduler {
             .assume_interactive_receiver()
             .check_inputs_not_owned(|script| owned_scripts.contains(&script))?
             .check_no_mixed_input_scripts()?
-            // TODO check, though this check is controversial since we're already breaking real "payjoin"
+            // TODO keep track of "seen" inputs, especially critical for "non-interactive" (automated) receivers
             .check_no_inputs_seen_before(|_| false)?;
 
         // prepare proposal psbt (psbt, owned_vout, ScheduledPayJoin)
 
-        log::debug!("find outputs that pay the receiver...");
+        log::trace!("find outputs that pay the receiver...");
         let pj_by_script = self.pjs.lock().await;
-        log::debug!("pj_by_script: {:#?}", pj_by_script);
+        log::trace!("pj_by_script: {:#?}", pj_by_script);
         let mut payjoin_proposal = request.identify_receiver_outputs(|script| {
             let addr = Address::from_script(script, network).expect("script is valid");
-            log::debug!("checking if output pays us: {:#?}", addr);
+            log::trace!("checking if output pays us: {:#?}", addr);
             pj_by_script.contains_key(script)
         })?;
         std::mem::drop(pj_by_script);
 
-        log::debug!("find a payjoin match...");
+        log::trace!("find a payjoin match...");
         let (owned_vout, pj) = self
             .remove_matching_payjoin(&fallback_tx)
             .await
             .ok_or(SchedulerError::NoMatchingPayJoin)?;
 
-        log::debug!("Checks are good, preparing proposal PSBT");
+        log::trace!("Checks are good, preparing proposal PSBT");
         // no output substitution for this plain 'ol payjoin iteration
-
         let our_output = &fallback_tx.output[owned_vout];
         if !pj.is_paying_us_enough(our_output) {
             return Err(SchedulerError::OriginalPsbtInvalidAmount);
@@ -362,17 +361,14 @@ impl Scheduler {
             .iter()
             .find(|utxo| utxo.1 == contribution_outpoint)
             .ok_or(SchedulerError::Internal("Coin selection failed"))?;
-        log::debug!("contribution: {:#?}", contribution);
+        log::trace!("contribution: {:#?}", contribution);
         let txo = TxOut { value: contribution.0.to_sat(), script_pubkey: contribution.2.clone() };
         payjoin_proposal.contribute_witness_input(txo, contribution_outpoint);
-
         let provisional_psbt = payjoin_proposal.apply_fee(None)?;
-        log::debug!("provisional psbt {:#?}", provisional_psbt);
+        log::trace!("provisional psbt {:#?}", provisional_psbt);
 
         // fill in bip32 deriv, witness, sig scripts
         // get derivation path and masterfingerprint and pubkey from fundpsbt
-        // I think that's it! it fills scriptsig and witness for us.
-        // transform for sign_psbt
 
         // use fundpsbt to get derivation data back. We only want the input data, not the whole funded psbt
         let mut hack_psbt = provisional_psbt.clone();
@@ -390,11 +386,11 @@ impl Scheduler {
         for output in hack_psbt.unsigned_tx.output.iter_mut() {
             output.value = 1000;
         }
-        log::debug!("hack psbt {:#?}", hack_psbt);
+        log::trace!("hack psbt {:#?}", hack_psbt);
 
         // psbt to fund MUST EXCLUDE sender input
         let (funded_hack_psbt, _) = self.lnd.fund_psbt(&hack_psbt).await?;
-        log::debug!("funded hack psbt {:#?}", funded_hack_psbt);
+        log::trace!("funded hack psbt {:#?}", funded_hack_psbt);
         // must manually unlock utxo signed from fund
         // apply that input with newfound derivation data to provisional psbt
         let mut complete_input = funded_hack_psbt.inputs[0].clone();
@@ -404,14 +400,14 @@ impl Scheduler {
             provisional_psbt.inputs.iter().position(|input| input.partial_sigs.is_empty()).unwrap();
         let mut provisional_psbt = provisional_psbt.clone();
         provisional_psbt.inputs[idx] = complete_input;
-        log::debug!("psbt to sign {:#?}", provisional_psbt);
+        log::trace!("psbt to sign {:#?}", provisional_psbt);
         let signed_psbt = self.lnd.sign_psbt(&provisional_psbt).await?;
-        log::debug!("signed psbt {:#?}", signed_psbt);
+        log::trace!("signed psbt {:#?}", signed_psbt);
         let finalized_psbt = finalize_psbt(signed_psbt);
-        log::debug!("finalized psbt {:#?}", finalized_psbt);
+        log::trace!("finalized psbt {:#?}", finalized_psbt);
         let payjoin_psbt = payjoin_proposal.prepare_psbt(finalized_psbt)?;
 
-        log::debug!("prepared: {:#?}", payjoin_psbt);
+        log::debug!("Payjoin PSBT to propose: {:#?}", payjoin_psbt);
 
         let mut psbt_bytes = Vec::new();
         payjoin_psbt.consensus_encode(&mut psbt_bytes)?;
@@ -559,12 +555,9 @@ fn finalize_psbt(mut psbt: PartiallySignedTransaction) -> PartiallySignedTransac
     for input in psbt.inputs.iter_mut() {
         if !input.partial_sigs.is_empty() {
             let sigs: Vec<_> = input.partial_sigs.values().collect();
-            log::debug!("values: {:#?}", &sigs);
             let mut script_witness = bitcoin::Witness::new();
             script_witness.push(&sigs[0].to_vec());
-            // pubkey bytes go heree
             let pubkeys: Vec<_> = input.partial_sigs.keys().collect();
-            log::debug!("keys: {:#?}", &pubkeys);
             script_witness.push(&pubkeys[0].to_bytes());
 
             input.final_script_witness = Some(script_witness);
