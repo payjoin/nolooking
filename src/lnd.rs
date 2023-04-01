@@ -295,7 +295,7 @@ impl LndClient {
             tonic_lnd::walletrpc::Transaction { tx_hex: tx.serialize(), ..Default::default() };
         let res = client.publish_transaction(req).await?;
         let stream = res.get_ref();
-        if &stream.publish_error != "" {
+        if !&stream.publish_error.is_empty() {
             return Err(LndError::Publish(stream.publish_error.to_owned()));
         }
         Ok(tx.txid())
