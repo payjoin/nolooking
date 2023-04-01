@@ -205,7 +205,7 @@ impl ScheduledPayJoin {
         let mut iter = funding_txos.into_iter();
         let funding_txout = iter.next().unwrap(); // we assume there is at least 1.
 
-        let mut proposal_psbt = original_psbt.clone();
+        let mut proposal_psbt = original_psbt;
 
         // determine whether we substitute channel opens for the original psbt's ownedoutput to us
         if self.reserve_deposit() == bitcoin::Amount::ZERO {
@@ -261,7 +261,7 @@ impl Scheduler {
     }
 
     pub async fn from_config(config: &crate::config::Config) -> Result<Self, SchedulerError> {
-        Ok(Scheduler::new(LndClient::from_config(&config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), 
+        Ok(Scheduler::new(LndClient::from_config(config).await?, config.endpoint.parse().expect("Malformed secure endpoint from config file. Expecting a https or .onion URI to proxy payjoin requests"), 
         config.danger_accept_invalid_certs, config.tor_proxy_address))
     }
 
@@ -271,7 +271,7 @@ impl Scheduler {
         batch: ChannelBatch,
         // TODO return bip21::Url Seems broken or incompatible with bip78 now
     ) -> Result<(String, Address), SchedulerError> {
-        self.test_connections(&batch.channels()).await?;
+        self.test_connections(batch.channels()).await?;
         let bitcoin_addr = self.lnd.get_new_bech32_address().await?;
 
         let required_reserve = self.lnd.required_reserve(batch.channels().len() as u32).await?;
@@ -484,7 +484,7 @@ pub fn format_bip21(address: Address, amount: Amount, endpoint: url::Url) -> Str
         "bitcoin:{}?amount={}&pj={}pj",
         address,
         amount.to_string_in(bitcoin::Denomination::Bitcoin),
-        endpoint.to_string()
+        endpoint
     );
     bip21_str
 }

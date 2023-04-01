@@ -54,7 +54,7 @@ impl Server {
 fn create_qr_code(qr_string: &str, name: &str) {
     let filename = format!("{}/qr_codes/{}.png", PUBLIC_DIR, name);
     qrcode_generator::to_png_to_file(qr_string, QrCodeEcc::Low, 512, filename.clone())
-        .expect(&format!("Saved QR code: {}", filename));
+        .unwrap_or_else(|_| panic!("Saved QR code: {}", filename));
 }
 
 async fn handle_web_req(
@@ -123,7 +123,7 @@ async fn handle_pj(
     let query = {
         let uri = req.uri();
         if let Some(query) = uri.query() {
-            Some(&query.to_owned());
+            let _ = query.to_owned();
         }
         None
     };
