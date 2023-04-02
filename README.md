@@ -1,6 +1,10 @@
 <img align="left" style="height: 6em; width: 6em;" src="https://user-images.githubusercontent.com/8525467/201369193-f3e00fe8-e1a7-4524-b120-b7ab21ef4a57.svg">
 
-# nolooking: Open All Your Channels in 1 Transaction
+# nolooking: Payjoin from LND
+
+Send and receive [BIP78](https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki) payjoin
+
+## Open All Your Channels in 1 Transaction
 
 &nbsp;
 
@@ -8,7 +12,7 @@ Funding channels the old way is a pain. First you'd fund your node on-chain, wai
 
 A new node can get connected in one transaction that opens inbound *and* outbound channels using pay-to-endpoint. Privacy is just a bonus.
 
-Nolooking leverages Pay-to-Endpoint ([BIP78](https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki) PayJoin) to negotiate a channel open for your lightning node from any BIP78 [supporting wallet](https://en.bitcoin.it/wiki/PayJoin_adoption). Previously, custom PSBT channel funding could only be done by [signing PSBTs manually](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md). A node running nolooking can open many new lightning channel with every inbound transaction, provided the payer supports BIP78. E.g. by using Sparrow wallet, BTCPayServer, or Wasabi; following the normal QR scan and payjoin payment flow. Read the article about [Lightning Powered PayJoin](https://chaincase.app/words/lightning-payjoin?ref=github) to hear how it can save your privacy, time, and money!
+Nolooking leverages Pay-to-Endpoint ([BIP78](https://github.com/bitcoin/bips/blob/master/bip-0078.mediawiki) payjoin) to negotiate a channel open for your lightning node from any BIP78 [supporting wallet](https://en.bitcoin.it/wiki/PayJoin_adoption). Previously, custom PSBT channel funding could only be done by [signing PSBTs manually](https://github.com/lightningnetwork/lnd/blob/master/docs/psbt.md). A node running nolooking can open many new lightning channel with every inbound transaction, provided the payer supports BIP78. E.g. by using Sparrow wallet, BTCPayServer, or Wasabi; following the normal QR scan and payjoin payment flow. Read the article about [Lightning Powered Payjoin](https://chaincase.app/words/lightning-payjoin?ref=github) to hear how it can save your privacy, time, and money!
 
 ## ⚠️ WARNING: EXPERIMENTAL ALPHA
 
@@ -59,18 +63,19 @@ You can also schedule channel opens, such that when someone goes to pay you ligh
 ## Expected privacy implications
 
 If you open a lightning channel the usual way, common input heuristic makes a good assumption that the change from this funding transaction belongs to the funder.
-The payjoin provided by nolooking breaks that assumption, where this change could now be the payer's change instead.
+Using payjoin breaks that assumption, where this change could now be the payer's change instead.
 
-Just as with any other PayJoin, it becomes unclear whether all inputs of a transaction belong to a single funder or whether there are indeed multiple parties funding the transaction.
+Just as with any other payjoin, it becomes unclear whether all inputs of a transaction belong to a single funder or whether there are indeed multiple parties funding the transaction.
 
 Because this tool breaks analytic assumptions regarding bitcoin transactions in general, using it will add transactions to the network which have a large set of possible interpretations and thus better privacy.
 
 ## Future research
-Sadly, I don't think the payjoin sender can can also safely open a lightning channel using change from the transaction, but I have some ideas how it could be achieved in the future.
+
+Payjoin works great for channel opening, but the underlying protocol needs to change in order to support closing a channel in a payjoin.
 
 If lightning channels were truly private, then this tool could make chain analytics even more confusing since heurestics may incorrectly assume a transaction funds a single node instead of two or even several.
 
-With Post-Taproot-LN it will be impossible to distinguish a CoinJoin from a batch open of several same-sized private channels. Actually, CoinJoin and batch opening of several same-sized private channels could be one transaction. Good luck analyzing that!
+Once lightning channels are opened in taproot outputs, it will be impossible to distinguish a CoinJoin from a batch open of several same-sized private channels. Actually, CoinJoin and batch opening of several same-sized private channels could be one transaction. Good luck analyzing that!
 
 ## UX implications
 
@@ -80,9 +85,7 @@ In other words, your grandmother will be able to somewhat privately open a bunch
 
 ## Limitations and future plans
 
-* **UNSAFE** -- does not implement required BIP78 checks
-* Funds in LND or other wallet are not used, so it's not true PayJoin *yet*.
-* Invalid request can kill the whole server
+* Invalid request may kill the whole server
 
 ## License
 
