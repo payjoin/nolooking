@@ -1,6 +1,6 @@
 [package]
 name = "nolooking"
-version = "0.3.2-alpha"
+version = "0.4.0-alpha"
 authors = ["Dan Gould <d@ngould.dev>", "Martin Habovstiak <martin.habovstiak@gmail.com>"]
 exclude = ["./tests/compose"]
 edition = "2018"
