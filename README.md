@@ -20,6 +20,10 @@ Use at your own risk. This crate has no professional independent Rust and Bitcoi
 
 Any unexpecected node version will likely cause permanent loss of funds.
 
+## Testing
+
+Find a guide to automated integration tests and local testing with Polar regtest in the [tests](https://github.com/chaincase-app/nolooking/tree/master/tests) folder.
+
 ## Usage
 
 Requires:
@@ -41,8 +45,9 @@ lnd_address="https://localhost:10009"
 lnd_cert_path="/home/dan/.lnd/tls.cert"
 lnd_macaroon_path="/home/dan/.lnd/data/chain/bitcoin/mainnet/admin.macaroon"
 ```
-   - Lines starting with `lnd_` specify your connection to your bitcoin node.
 
+   - payjoin uses a secured `https` or `onion` server endpoint to coordinate. The endpoint you specify should be addressable from whatever sender you use. Step 2 assumes your sender is local. The endpoint configuration parameter is printed in the bip21 uri.
+   - Lines starting with `lnd_` specify your connection to your bitcoin node.
    - You will be able to view the nolooking site on `bind_port` and the payjoin endpoint will be `endpoint` (e.g. can be a domain).
 
 4. Run with `nolooking --conf nolooking.conf`
